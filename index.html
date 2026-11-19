@@ -1,0 +1,3786 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sistem Sirkulasi Laptop Murid QR</title>
+    <meta
+      name="description"
+      content="Sistem Sirkulasi Pengambilan dan Pengembalian Laptop Murid Berbasis QR Code dengan Role-Based Access Control (Admin & Petugas Piket)."
+    />
+    <meta property="og:title" content="Sistem Sirkulasi Laptop Murid QR" />
+    <meta
+      property="og:description"
+      content="Sistem Sirkulasi Pengambilan dan Pengembalian Laptop Murid Berbasis QR Code dengan Role-Based Access Control (Admin & Petugas Piket)."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- Google Fonts: Plus Jakarta Sans & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+              mono: ['"JetBrains Mono"', 'monospace'],
+              arabic: ['"Neirizi"', '"Amiri"', 'serif'],
+            },
+          },
+        },
+      };
+    </script>
+
+    <!-- Pustaka Pemindai Kamera QR Code (html5-qrcode via CDN) -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+    <!-- Pustaka Pembuat QR Code (qrcodejs via CDN) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <style>
+      @font-face {
+        font-family: 'Neirizi';
+        src:
+          local('Neirizi'),
+          local('Neirizi Regular'),
+          local('Neirizi Quran'),
+          url('/fonts/Neirizi.woff2') format('woff2'),
+          url('/fonts/Neirizi.ttf') format('truetype');
+        font-weight: normal;
+        font-style: normal;
+        font-display: swap;
+      }
+
+      body {
+        font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+        background-color: #f8fafc;
+        color: #0f172a;
+      }
+
+      .font-arabic {
+        font-family: 'Neirizi', 'Amiri', serif;
+      }
+
+      .tabular-nums {
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* Kustomisasi viewport kamera html5-qrcode agar bersih dan presisi */
+      #qr-reader {
+        border: none !important;
+        background: #0f172a;
+        border-radius: 0.75rem;
+        overflow: hidden;
+      }
+      #qr-reader video {
+        border-radius: 0.75rem;
+        object-fit: cover;
+      }
+      #qr-reader__dashboard_section_csr,
+      #qr-reader__dashboard_section_swaplink {
+        display: none !important;
+      }
+
+      /* Gaya Cetak Kartu ID & Stiker Laptop */
+      @media print {
+        body * {
+          visibility: hidden !important;
+        }
+        #printContainer,
+        #printContainer * {
+          visibility: visible !important;
+        }
+        #printContainer {
+          position: fixed !important;
+          inset: 0 !important;
+          display: flex !important;
+          align-items: flex-start !important;
+          justify-content: center !important;
+          padding: 16mm !important;
+          background: #ffffff !important;
+        }
+      }
+    </style>
+  </head>
+  <body class="antialiased selection:bg-orange-100 selection:text-orange-900">
+    <!-- =================================================================== -->
+    <!-- 1. LAYAR / MODAL LOGIN (AUTHENTICATION & ROLE SELECTION)            -->
+    <!-- =================================================================== -->
+    <div
+      id="loginScreen"
+      class="min-h-screen flex items-center justify-center p-4 sm:p-6 bg-slate-50"
+    >
+      <div class="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-12 bg-white border border-slate-200 border-t-4 border-t-orange-500 rounded-2xl overflow-hidden shadow-sm">
+        <!-- Kolom Kiri: Identitas Sistem & Panduan Pengujian -->
+        <div class="lg:col-span-5 bg-slate-900 text-slate-100 p-8 flex flex-col justify-between">
+          <div>
+            <p class="text-xs font-mono tracking-wide text-orange-400">
+              SISTEM INVENTARIS SEKOLAH
+            </p>
+            <h1 class="mt-3 text-2xl font-bold tracking-tight text-white leading-snug" style="text-wrap: balance">
+              Sirkulasi Laptop Murid Berbasis QR Code
+            </h1>
+            <p class="mt-3 text-sm text-slate-300 leading-relaxed">
+              Kendali pengambilan dan pengembalian unit laptop 1-on-1 dengan verifikasi foto murid, deteksi status blokir, dan validasi anti-tertukar.
+            </p>
+          </div>
+
+          <div class="mt-8 pt-6 border-t border-slate-800 space-y-3">
+            <p class="text-xs font-medium text-slate-300">
+              Akun Pengujian Default (tersimpan di localStorage):
+            </p>
+            <div class="grid grid-cols-1 gap-2.5">
+              <button
+                type="button"
+                onclick="fillDemoAccount('admin', 'admin123')"
+                class="text-left p-3 rounded-lg bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-orange-500/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-semibold text-white">Administrator</span>
+                  <span class="text-[11px] font-mono text-orange-300">Isi Otomatis</span>
+                </div>
+                <p class="mt-1 text-xs font-mono text-slate-300 tabular-nums">
+                  Username: <strong class="text-white">admin</strong> · Password: <strong class="text-white">admin123</strong>
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onclick="fillDemoAccount('piket', 'piket123')"
+                class="text-left p-3 rounded-lg bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-orange-500/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-semibold text-white">Petugas Piket</span>
+                  <span class="text-[11px] font-mono text-emerald-300">Isi Otomatis</span>
+                </div>
+                <p class="mt-1 text-xs font-mono text-slate-300 tabular-nums">
+                  Username: <strong class="text-white">piket</strong> · Password: <strong class="text-white">piket123</strong>
+                </p>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Kolom Kanan: Form Login -->
+        <div class="lg:col-span-7 p-8 sm:p-10 flex flex-col justify-center">
+          <div class="max-w-sm w-full mx-auto">
+            <h2 class="text-xl font-bold text-slate-900">Masuk ke Sistem</h2>
+            <p class="mt-1 text-sm text-slate-500">
+              Masuk dengan akun Google untuk sinkronisasi Cloud Firestore, atau gunakan mode demo lokal.
+            </p>
+
+            <!-- Login Cloud Firestore (Google Sign-In) -->
+            <div class="mt-5 space-y-3">
+              <button
+                id="btnGoogleLogin"
+                type="button"
+                onclick="loginWithGoogle()"
+                class="w-full py-2.5 px-4 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg text-sm font-semibold flex items-center justify-center gap-2.5 transition-colors shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+              >
+                <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z" />
+                  <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24Z" />
+                  <path fill="#FBBC05" d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14Z" />
+                  <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z" />
+                </svg>
+                <span>Masuk dengan Google (Cloud Firestore)</span>
+              </button>
+
+              <div class="relative flex items-center py-1">
+                <div class="flex-grow border-t border-slate-200"></div>
+                <span class="shrink mx-3 text-[11px] font-medium text-slate-400 uppercase tracking-wider">
+                  atau mode demo lokal
+                </span>
+                <div class="flex-grow border-t border-slate-200"></div>
+              </div>
+            </div>
+
+            <form id="loginForm" class="mt-3 space-y-4">
+              <div>
+                <label for="loginUsername" class="block text-sm font-medium text-slate-700 mb-1.5">
+                  Username
+                </label>
+                <input
+                  id="loginUsername"
+                  type="text"
+                  required
+                  autocomplete="username"
+                  placeholder="Contoh: admin atau piket"
+                  class="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                />
+              </div>
+
+              <div>
+                <label for="loginPassword" class="block text-sm font-medium text-slate-700 mb-1.5">
+                  Password
+                </label>
+                <input
+                  id="loginPassword"
+                  type="password"
+                  required
+                  autocomplete="current-password"
+                  placeholder="Masukkan kata sandi"
+                  class="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                />
+              </div>
+
+              <div
+                id="loginErrorBox"
+                class="hidden p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 font-medium"
+                role="alert"
+              ></div>
+
+              <button
+                type="submit"
+                class="w-full py-2.5 px-4 bg-orange-600 hover:bg-orange-700 text-white text-sm font-semibold rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2"
+              >
+                Masuk Mode Lokal
+              </button>
+            </form>
+
+            <p class="mt-6 text-xs text-slate-500 leading-relaxed">
+              Hak akses menu dan fitur akan disesuaikan otomatis berdasarkan peran (Admin atau Petugas Piket) akun yang masuk.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- 2. SHELL UTAMA APLIKASI (SIDEBAR + TOPBAR + KONTEN DINAMIS)         -->
+    <!-- =================================================================== -->
+    <div id="appShell" class="hidden min-h-screen flex flex-col lg:flex-row">
+      <!-- Sidebar Desktop -->
+      <aside class="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 bg-white border-r border-slate-200">
+        <div class="h-1 w-full bg-orange-500"></div>
+        <div class="px-5 py-5 border-b border-slate-200 space-y-2.5">
+          <div class="flex items-center gap-3">
+            <img
+              src="https://scontent.fcgk18-2.fna.fbcdn.net/v/t39.30808-1/366933826_264863942972640_4057652408279658505_n.jpg?stp=c0.0.276.276a_dst-jpg_tt6&cstp=mx276x276&ctp=s276x276&_nc_cat=105&_nc_map=urlgen_bucketless&ccb=1-7&_nc_sid=2d3e12&_nc_eui2=AeEBJXjdTgjW0vDvDMV-6Hd2wNyRwQS2VU7A3JHBBLZVThh5XgyOQ2A7ByGk30HAaqNs0iP0-Q4XkQGSi93EwxQW&_nc_ohc=zdEGmo_a0LcQ7kNvwGP0VRk&_nc_oc=AdpHqb6Yid-LI7WtOMFrkZ0Hk-mB1vhVOIxrCG6T7Yg_2g0uOYNyuoXqWhoe0qSDfcU&_nc_zt=24&_nc_ht=scontent.fcgk18-2.fna&_nc_gid=WEpM1I5DOwq5r8um5FZ08A&_nc_ss=7b2a8&oh=00_AQQbwZJX_cUthwBF6yBU0cwyGVVXgFTziouCOCitDhocxg&oe=6B0495EB"
+              alt="Logo SMAIT As-Syifa Boarding School Wanareja"
+              referrerpolicy="no-referrer"
+              onerror="this.onerror=null;this.src=createDefaultAvatar('AS')"
+              class="w-12 h-12 rounded-xl object-cover border border-slate-200 bg-white shrink-0"
+            />
+            <div class="min-w-0">
+              <p class="text-xs font-semibold text-slate-900 leading-snug">
+                SMAIT As-Syifa Boarding School Wanareja
+              </p>
+              <p class="mt-0.5 text-[11px] font-medium text-orange-700 leading-snug">
+                Sekolah Unggul Garuda Transformasi
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <nav id="sidebarNav" class="flex-1 px-3 py-4 space-y-1" aria-label="Menu Utama">
+          <!-- Menu diisi oleh renderNavigation() sesuai RBAC -->
+        </nav>
+
+        <!-- Panel Akun Aktif & Tombol Logout / Ganti Akun -->
+        <div class="p-4 border-t border-slate-200 bg-slate-50/70">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <p id="sidebarUserName" class="text-sm font-semibold text-slate-900 truncate">-</p>
+              <p id="sidebarUserRole" class="text-xs text-slate-600 mt-0.5">-</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onclick="logoutUser()"
+            class="mt-3 w-full py-2 px-3 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors whitespace-nowrap"
+          >
+            Logout / Ganti Akun
+          </button>
+        </div>
+      </aside>
+
+      <!-- Konten Utama -->
+      <div class="flex-1 lg:pl-64 flex flex-col min-h-screen">
+        <!-- Top Header Bar -->
+        <header class="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 border-t-2 border-t-orange-500 lg:border-t-0 px-4 sm:px-8 py-3.5">
+          <div class="max-w-6xl mx-auto flex items-center justify-between gap-4">
+            <div class="min-w-0 flex items-center gap-3">
+              <button
+                type="button"
+                onclick="toggleMobileMenu()"
+                class="lg:hidden p-2 -ml-1 text-slate-600 hover:text-slate-900 rounded-lg border border-slate-200"
+                aria-label="Buka Menu"
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              <div class="min-w-0">
+                <h1 id="pageTitle" class="text-base sm:text-lg font-bold text-slate-900 truncate">
+                  Dashboard Piket Laptop
+                </h1>
+              </div>
+            </div>
+
+            <!-- Indikator Role Aktif & Aksi Utama -->
+            <div class="flex items-center gap-3 shrink-0">
+              <div class="hidden sm:flex items-center gap-2 text-xs text-slate-600 pr-3 border-r border-slate-200">
+                <span id="topbarRoleLabel" class="font-semibold text-slate-900 whitespace-nowrap">-</span>
+                <span aria-hidden="true">·</span>
+                <span id="topbarClock" class="font-mono tabular-nums text-slate-500 whitespace-nowrap">--:--:--</span>
+              </div>
+
+              <button
+                type="button"
+                onclick="navigateTo('scan')"
+                class="px-3.5 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0"
+              >
+                Scan QR Sirkulasi
+              </button>
+
+              <button
+                type="button"
+                onclick="logoutUser()"
+                class="lg:hidden px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0"
+              >
+                Ganti Akun
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <!-- Drawer Menu Mobile -->
+        <div id="mobileMenuDrawer" class="hidden lg:hidden bg-white border-b border-slate-200 px-4 py-3 space-y-1">
+          <!-- Diisi oleh renderNavigation() -->
+        </div>
+
+        <!-- Area Konten Dinamis -->
+        <main class="flex-1 p-4 sm:p-8">
+          <div class="max-w-6xl mx-auto">
+            <!-- ========================================================= -->
+            <!-- HALAMAN 1: DASHBOARD                                      -->
+            <!-- ========================================================= -->
+            <section id="view-dashboard" class="space-y-6">
+              <!-- Motivasi Kerja / Hadis Itqan -->
+              <div class="bg-orange-50/60 border border-orange-200 rounded-xl px-6 py-5 text-center space-y-2">
+                <p
+                  dir="rtl"
+                  lang="ar"
+                  class="font-arabic text-2xl sm:text-3xl text-slate-900 leading-[2.2]"
+                >
+                  إِنَّ اللَّهَ يُحِبُّ إِذَا عَمِلَ أَحَدُكُمْ عَمَلًا أَنْ يُتْقِنَهُ
+                </p>
+                <p class="text-sm text-slate-700 leading-relaxed max-w-3xl mx-auto">
+                  Sesungguhnya Allah mencintai jika salah seorang di antara kalian mengerjakan suatu pekerjaan, ia mengerjakannya dengan sempurna.
+                  <span class="font-semibold text-orange-800 whitespace-nowrap">(HR. Thabrani dan Baihaqi)</span>
+                </p>
+              </div>
+
+              <!-- Daftar Murid Disuspend (Tidak Boleh Mengambil Laptop) -->
+              <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                <div class="px-5 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h2 class="text-base font-bold text-slate-900">Daftar Murid Disuspend (Tidak Boleh Mengambil Laptop)</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">
+                      Murid pada daftar ini ditolak otomatis oleh sistem saat melakukan pemindaian QR.
+                    </p>
+                  </div>
+
+                  <div class="flex items-center gap-2.5">
+                    <input
+                      id="dashSearchInput"
+                      type="search"
+                      oninput="renderDashboard()"
+                      placeholder="Cari nama, NIS, kelas, atau alasan..."
+                      class="px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 w-full sm:w-64"
+                    />
+                  </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left border-collapse">
+                    <thead>
+                      <tr class="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-600">
+                        <th class="py-3 px-4">Murid &amp; Foto</th>
+                        <th class="py-3 px-4">NIS / Kelas</th>
+                        <th class="py-3 px-4">Kode &amp; Seri Laptop</th>
+                        <th class="py-3 px-4">Alasan Suspend</th>
+                        <th class="py-3 px-4">Dicatat Oleh</th>
+                        <th id="dashActionHeader" class="py-3 px-4 text-right hidden">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody id="dashboardTableBody" class="divide-y divide-slate-100 text-sm">
+                      <!-- Diisi oleh renderDashboard() -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+
+            <!-- ========================================================= -->
+            <!-- HALAMAN 2: SCAN QR SIRKULASI (2 LANGKAH KETAT)           -->
+            <!-- ========================================================= -->
+            <section id="view-scan" class="hidden space-y-6">
+              <!-- Grid Scanner Kamera + Panel Hasil Verifikasi -->
+              <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                <!-- Kolom Kiri: Kamera html5-qrcode & Simulasi Manual -->
+                <div class="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+                  <div class="flex items-center justify-between gap-2">
+                    <div>
+                      <h2 class="text-sm font-bold text-slate-900">Pemindai Kamera QR</h2>
+                      <p id="scannerInstructionLabel" class="text-xs text-slate-500 mt-0.5">
+                        Arahkan kamera ke QR Kartu Murid
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onclick="resetScanFlow()"
+                      class="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap"
+                    >
+                      Reset Sesi
+                    </button>
+                  </div>
+
+                  <!-- Viewport Kamera html5-qrcode -->
+                  <div class="relative bg-slate-900 rounded-xl overflow-hidden min-h-[260px] flex items-center justify-center">
+                    <div id="qr-reader" class="w-full"></div>
+                    <div
+                      id="cameraPlaceholder"
+                      class="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-slate-300"
+                    >
+                      <svg class="w-10 h-10 text-slate-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      <p class="text-sm font-semibold text-white">Kamera Belum Aktif</p>
+                      <p class="text-xs text-slate-400 mt-1 max-w-xs">
+                        Klik tombol di bawah untuk mengaktifkan kamera perangkat via html5-qrcode.
+                      </p>
+                    </div>
+                  </div>
+
+                  <!-- Kontrol Kamera -->
+                  <div class="space-y-2.5">
+                    <div class="flex items-center gap-2">
+                      <select
+                        id="cameraSelect"
+                        class="flex-1 px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      >
+                        <option value="">Kamera Default / Belakang</option>
+                      </select>
+                      <button
+                        id="btnToggleCamera"
+                        type="button"
+                        onclick="toggleCameraScanner()"
+                        class="px-4 py-2 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                      >
+                        Aktifkan Kamera
+                      </button>
+                    </div>
+                    <p id="cameraStatusMsg" class="text-xs text-slate-500 min-h-[1rem]"></p>
+                  </div>
+
+                  <!-- Input Manual / Uji Coba Cepat Tanpa Kamera Fisik -->
+                  <div class="pt-4 border-t border-slate-200 space-y-2.5">
+                    <p class="text-xs font-semibold text-slate-700">
+                      Input Kode QR Manual / Alat Barcode USB
+                    </p>
+                    <form id="manualQrForm" class="flex items-center gap-2">
+                      <input
+                        id="manualQrInput"
+                        type="text"
+                        placeholder="Ketik NIS Murid atau Kode Laptop..."
+                        class="flex-1 px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      />
+                      <button
+                        type="submit"
+                        class="px-3.5 py-2 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        Proses QR
+                      </button>
+                    </form>
+                    <div id="quickTestSamples" class="pt-1 flex flex-wrap gap-1.5">
+                      <!-- Tombol contoh payload QR untuk mempermudah pengujian -->
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Kolom Kanan: Panel Verifikasi Wajah, Peringatan Blokir & Anti-Tertukar -->
+                <div class="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-6 min-h-[460px] flex flex-col justify-between">
+                  <div id="scanResultPanel" class="flex-1 flex flex-col justify-center">
+                    <!-- Diisi dinamis oleh renderScanPanel() -->
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- ========================================================= -->
+            <!-- HALAMAN 3: RIWAYAT SIRKULASI                              -->
+            <!-- ========================================================= -->
+            <section id="view-history" class="hidden space-y-5">
+              <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                <div class="px-5 py-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                  <div>
+                    <h2 class="text-base font-bold text-slate-900">
+                      Riwayat Sirkulasi Laptop
+                    </h2>
+                    <p id="historySubtitle" class="text-xs text-slate-500 mt-0.5">
+                      Log pengambilan dan pengembalian laptop
+                    </p>
+                  </div>
+
+                  <div class="flex flex-wrap items-center gap-2.5">
+                    <!-- Filter Periode (Untuk Piket terkunci hanya Hari Ini) -->
+                    <div id="historyPeriodControls" class="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+                      <button
+                        type="button"
+                        onclick="setHistoryScope('today')"
+                        data-hist-scope="today"
+                        class="hist-scope-btn px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap"
+                      >
+                        Hari Ini
+                      </button>
+                      <button
+                        type="button"
+                        onclick="setHistoryScope('all')"
+                        data-hist-scope="all"
+                        class="hist-scope-btn px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap"
+                      >
+                        Semua Riwayat
+                      </button>
+                    </div>
+
+                    <input
+                      id="historySearchInput"
+                      type="search"
+                      oninput="renderHistory()"
+                      placeholder="Cari murid, kode laptop, petugas..."
+                      class="px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 w-52"
+                    />
+
+                    <!-- Tombol Ekspor CSV/Excel (KHUSUS ADMIN) -->
+                    <button
+                      id="btnExportCsv"
+                      type="button"
+                      onclick="exportHistoryCSV()"
+                      class="hidden px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
+                    >
+                      Ekspor CSV / Excel
+                    </button>
+                  </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left border-collapse">
+                    <thead>
+                      <tr class="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-600">
+                        <th class="py-3 px-4">Waktu Ambil</th>
+                        <th class="py-3 px-4">Waktu Kembali</th>
+                        <th class="py-3 px-4">Foto &amp; Nama Murid</th>
+                        <th class="py-3 px-4">Kelas</th>
+                        <th class="py-3 px-4">Kode Laptop</th>
+                        <th class="py-3 px-4">Petugas Melayani</th>
+                        <th class="py-3 px-4">Status</th>
+                        <th id="historyActionHeader" class="py-3 px-4 text-right hidden">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody id="historyTableBody" class="divide-y divide-slate-100 text-sm">
+                      <!-- Diisi oleh renderHistory() -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+
+            <!-- ========================================================= -->
+            <!-- HALAMAN 4: DATABASE MURID & LAPTOP (KHUSUS ADMIN)         -->
+            <!-- ========================================================= -->
+            <section id="view-students" class="hidden space-y-5">
+              <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                <div class="px-5 py-4 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                  <div>
+                    <h2 class="text-base font-bold text-slate-900">
+                      Database Murid &amp; Kepemilikan Laptop (1-on-1)
+                    </h2>
+                    <p class="text-xs text-slate-500 mt-0.5">
+                      Kelola profil murid, foto terkompresi, tautan unit laptop, blokir akses, dan cetak kartu QR.
+                    </p>
+                  </div>
+
+                  <div class="flex flex-wrap items-center gap-2.5">
+                    <input
+                      id="studentSearchInput"
+                      type="search"
+                      oninput="renderStudents()"
+                      placeholder="Cari NIS, nama, kelas, laptop..."
+                      class="px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 w-56"
+                    />
+                    <button
+                      type="button"
+                      onclick="openStudentModal()"
+                      class="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
+                    >
+                      + Tambah Murid &amp; Laptop
+                    </button>
+                  </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left border-collapse">
+                    <thead>
+                      <tr class="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-600">
+                        <th class="py-3 px-4">Murid &amp; Foto</th>
+                        <th class="py-3 px-4">NIS &amp; Kelas</th>
+                        <th class="py-3 px-4">Laptop Terkait</th>
+                        <th class="py-3 px-4">Status Blokir</th>
+                        <th class="py-3 px-4">Cetak QR</th>
+                        <th class="py-3 px-4 text-right">Kelola</th>
+                      </tr>
+                    </thead>
+                    <tbody id="studentsTableBody" class="divide-y divide-slate-100 text-sm">
+                      <!-- Diisi oleh renderStudents() -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+
+            <!-- ========================================================= -->
+            <!-- HALAMAN 5: AKUN PENGGUNA & DATA DUMMY (KHUSUS ADMIN)      -->
+            <!-- ========================================================= -->
+            <section id="view-users" class="hidden space-y-6">
+              <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                <!-- Daftar & Tambah Akun -->
+                <div class="lg:col-span-8 bg-white border border-slate-200 rounded-xl overflow-hidden">
+                  <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+                    <div>
+                      <h2 class="text-base font-bold text-slate-900">Manajemen Akun Pengguna</h2>
+                      <p id="usersSubtitle" class="text-xs text-slate-500 mt-0.5">
+                        Atur akses Admin dan Petugas Piket
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onclick="openUserModal()"
+                      class="px-3.5 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
+                    >
+                      + Tambah Akun
+                    </button>
+                  </div>
+
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                      <thead>
+                        <tr class="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-600">
+                          <th class="py-3 px-4">Nama Lengkap</th>
+                          <th id="usersIdentifierHeader" class="py-3 px-4">Username / Email Google</th>
+                          <th class="py-3 px-4">Role / Hak Akses</th>
+                          <th class="py-3 px-4 text-right">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody id="usersTableBody" class="divide-y divide-slate-100 text-sm">
+                        <!-- Diisi oleh renderUsers() -->
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Panel Utilitas Data Dummy & Reset (Khusus Admin) -->
+                <div class="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+                  <div>
+                    <h3 class="text-base font-bold text-slate-900">Pemeliharaan Data Sistem</h3>
+                    <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                      Gunakan fitur ini untuk mengisi ulang contoh data simulasi murid, unit laptop, dan riwayat sirkulasi, atau mengosongkan log transaksi.
+                    </p>
+                  </div>
+
+                  <div class="pt-2 space-y-2.5">
+                    <button
+                      type="button"
+                      onclick="confirmAction('Isi Ulang Data Dummy?', 'Semua data murid, laptop, dan riwayat saat ini akan diganti dengan data contoh bawaan.', resetWithDummyData)"
+                      class="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors"
+                    >
+                      Reset &amp; Isi Data Dummy Bawaan
+                    </button>
+
+                    <button
+                      type="button"
+                      onclick="confirmAction('Hapus Semua Riwayat Sirkulasi?', 'Seluruh catatan waktu pengambilan dan pengembalian akan dikosongkan permanen.', clearAllLogs)"
+                      class="w-full py-2.5 px-4 bg-white hover:bg-red-50 text-red-700 border border-red-200 text-xs font-semibold rounded-lg transition-colors"
+                    >
+                      Kosongkan Riwayat Sirkulasi
+                    </button>
+                  </div>
+
+                  <div class="pt-4 border-t border-slate-200 text-xs text-slate-500 space-y-1">
+                    <p id="storageSummaryLabel" class="font-semibold text-slate-700">Ringkasan Penyimpanan:</p>
+                    <p id="storageUsageInfo" class="font-mono tabular-nums">-</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- 3. MODAL TAMBAH / EDIT MURID & KOMPRESI FOTO BASE64                 -->
+    <!-- =================================================================== -->
+    <div
+      id="studentModal"
+      class="hidden fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+    >
+      <div class="bg-white border border-slate-200 rounded-xl w-full max-w-xl shadow-lg overflow-hidden my-8">
+        <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <h3 id="studentModalTitle" class="text-base font-bold text-slate-900">
+            Tambah Murid &amp; Laptop
+          </h3>
+          <button
+            type="button"
+            onclick="closeModal('studentModal')"
+            class="text-slate-400 hover:text-slate-700 p-1 rounded-lg"
+            aria-label="Tutup"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form id="studentForm" class="p-6 space-y-4">
+          <input type="hidden" id="editStudentOriginalNis" />
+
+          <!-- Upload File atau Tempel Link Foto & Pratinjau -->
+          <div class="flex flex-col sm:flex-row items-start gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+            <img
+              id="studentPhotoPreview"
+              src=""
+              alt="Pratinjau foto murid"
+              referrerpolicy="no-referrer"
+              onerror="handlePhotoPreviewError(this)"
+              class="w-20 h-20 rounded-xl object-cover border border-slate-300 bg-white shrink-0"
+            />
+            <div class="flex-1 min-w-0 w-full space-y-2.5">
+              <div>
+                <label for="studentPhotoInput" class="block text-xs font-semibold text-slate-800 mb-1">
+                  Foto Murid — Unggah File (Kompres 200x200 px) atau Tempel Link
+                </label>
+                <input
+                  id="studentPhotoInput"
+                  type="file"
+                  accept="image/*"
+                  class="block w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-slate-300 file:text-xs file:font-semibold file:bg-white file:text-slate-700 hover:file:bg-slate-100"
+                />
+              </div>
+
+              <div>
+                <input
+                  id="studentPhotoUrlInput"
+                  type="url"
+                  placeholder="Atau copy/tempel link URL foto (https://...)"
+                  class="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+
+              <div class="flex items-center justify-between gap-2">
+                <p id="photoCompressInfo" class="text-[11px] text-slate-500 font-mono truncate">
+                  Menggunakan avatar default jika belum diisi.
+                </p>
+                <button
+                  type="button"
+                  onclick="clearUploadedPhoto()"
+                  class="text-[11px] font-medium text-red-600 hover:underline whitespace-nowrap shrink-0"
+                >
+                  Hapus Foto
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label for="fieldNis" class="block text-xs font-semibold text-slate-700 mb-1">
+                NIS / ID Murid (Payload QR Kartu)
+              </label>
+              <input
+                id="fieldNis"
+                type="text"
+                required
+                placeholder="Misal: 20261001"
+                class="w-full px-3 py-2 text-sm font-mono bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+
+            <div>
+              <label for="fieldKelas" class="block text-xs font-semibold text-slate-700 mb-1">
+                Kelas
+              </label>
+              <div class="flex items-center gap-1.5">
+                <select
+                  id="fieldKelas"
+                  required
+                  class="flex-1 min-w-0 px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                >
+                  <!-- Opsi kelas diisi oleh renderClassOptions() -->
+                </select>
+                <button
+                  type="button"
+                  onclick="toggleAddClassRow(true)"
+                  title="Tambah Kelas Baru"
+                  aria-label="Tambah Kelas Baru"
+                  class="w-9 h-9 flex items-center justify-center text-sm font-bold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors shrink-0"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  onclick="deleteSelectedClass()"
+                  title="Hapus Kelas Terpilih"
+                  aria-label="Hapus Kelas Terpilih"
+                  class="w-9 h-9 flex items-center justify-center text-sm font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors shrink-0"
+                >
+                  &minus;
+                </button>
+              </div>
+              <!-- Input inline tambah kelas -->
+              <div id="addClassInlineRow" class="hidden mt-2 flex items-center gap-1.5">
+                <input
+                  id="newClassNameInput"
+                  type="text"
+                  placeholder="Nama kelas baru (misal: X RPL 2)"
+                  class="flex-1 min-w-0 px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                <button
+                  type="button"
+                  onclick="saveNewClass()"
+                  title="Simpan Kelas"
+                  aria-label="Simpan Kelas"
+                  class="w-8 h-8 flex items-center justify-center text-xs font-bold text-white bg-orange-600 hover:bg-orange-700 rounded-lg shrink-0"
+                >
+                  ✓
+                </button>
+                <button
+                  type="button"
+                  onclick="toggleAddClassRow(false)"
+                  title="Batal Tambah Kelas"
+                  aria-label="Batal Tambah Kelas"
+                  class="w-8 h-8 flex items-center justify-center text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg shrink-0"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label for="fieldNama" class="block text-xs font-semibold text-slate-700 mb-1">
+              Nama Lengkap Murid
+            </label>
+            <input
+              id="fieldNama"
+              type="text"
+              required
+              placeholder="Nama lengkap sesuai data sekolah"
+              class="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-200">
+            <div>
+              <label for="fieldLaptopCode" class="block text-xs font-semibold text-slate-700 mb-1">
+                Kode / ID Laptop (Otomatis LPT-xxxxx)
+              </label>
+              <div class="flex items-center gap-1.5">
+                <input
+                  id="fieldLaptopCode"
+                  type="text"
+                  required
+                  placeholder="LPT-00001"
+                  class="flex-1 min-w-0 px-3 py-2 text-sm font-mono bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                <button
+                  type="button"
+                  onclick="fillSmallestLaptopCode()"
+                  title="Isi Otomatis Kode Terkecil (LPT-xxxxx)"
+                  aria-label="Isi Otomatis Kode Laptop Terkecil"
+                  class="w-9 h-9 flex items-center justify-center text-sm font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors shrink-0"
+                >
+                  ↻
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label for="fieldLaptopBrand" class="block text-xs font-semibold text-slate-700 mb-1">
+                Merk / Seri Laptop
+              </label>
+              <input
+                id="fieldLaptopBrand"
+                type="text"
+                required
+                placeholder="Misal: Lenovo ThinkPad X13"
+                class="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+          </div>
+
+          <div id="studentFormError" class="hidden p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 font-medium"></div>
+
+          <div class="pt-3 flex items-center justify-end gap-2.5">
+            <button
+              type="button"
+              onclick="closeModal('studentModal')"
+              class="px-4 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              class="px-4 py-2 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 rounded-lg"
+            >
+              Simpan Data Murid
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- 4. MODAL BLOKIR MURID (KHUSUS ADMIN)                                -->
+    <!-- =================================================================== -->
+    <div
+      id="blockModal"
+      class="hidden fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+    >
+      <div class="bg-white border border-slate-200 rounded-xl w-full max-w-md shadow-lg overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <h3 class="text-base font-bold text-red-700">Blokir Akses Pengambilan Laptop</h3>
+          <button
+            type="button"
+            onclick="closeModal('blockModal')"
+            class="text-slate-400 hover:text-slate-700 p-1 rounded-lg"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form id="blockForm" class="p-6 space-y-4">
+          <input type="hidden" id="blockTargetNis" />
+          <div class="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+            <img id="blockTargetPhoto" src="" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src=createDefaultAvatar(this.alt)" class="w-12 h-12 rounded-lg object-cover border border-slate-200" />
+            <div>
+              <p id="blockTargetName" class="text-sm font-bold text-slate-900">-</p>
+              <p id="blockTargetMeta" class="text-xs font-mono text-slate-500">-</p>
+            </div>
+          </div>
+
+          <div>
+            <p class="text-xs font-semibold text-slate-700 mb-1.5">Pilihan Alasan Cepat:</p>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onclick="setQuickBlockReason('Belum menyelesaikan administrasi sekolah')"
+                class="px-2.5 py-1 text-[11px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md"
+              >
+                Administrasi belum selesai
+              </button>
+              <button
+                type="button"
+                onclick="setQuickBlockReason('Sanksi pelanggaran tata tertib sekolah')"
+                class="px-2.5 py-1 text-[11px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md"
+              >
+                Pelanggaran tata tertib
+              </button>
+              <button
+                type="button"
+                onclick="setQuickBlockReason('Unit laptop dalam pemeriksaan kerusakan')"
+                class="px-2.5 py-1 text-[11px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md"
+              >
+                Pemeriksaan kerusakan
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label for="blockReasonInput" class="block text-xs font-semibold text-slate-700 mb-1">
+              Alasan Pemblokiran (Ditampilkan ke Petugas Piket saat Scan)
+            </label>
+            <textarea
+              id="blockReasonInput"
+              rows="3"
+              required
+              placeholder="Tuliskan alasan pemblokiran murid secara jelas..."
+              class="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600"
+            ></textarea>
+          </div>
+
+          <div class="flex items-center justify-end gap-2.5 pt-2">
+            <button
+              type="button"
+              onclick="closeModal('blockModal')"
+              class="px-4 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              class="px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg"
+            >
+              Konfirmasi Blokir Murid
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- 5. MODAL CETAK QR KARTU MURID & STIKER LAPTOP (qrcode.js)           -->
+    <!-- =================================================================== -->
+    <div
+      id="qrPrintModal"
+      class="hidden fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+    >
+      <div class="bg-white border border-slate-200 rounded-xl w-full max-w-lg shadow-lg overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <h3 id="qrPrintModalTitle" class="text-base font-bold text-slate-900">
+            Pratinjau Cetak QR Code
+          </h3>
+          <button
+            type="button"
+            onclick="closeModal('qrPrintModal')"
+            class="text-slate-400 hover:text-slate-700 p-1 rounded-lg"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div class="p-6 bg-slate-50 flex justify-center">
+          <!-- Area yang akan dicetak ke printer -->
+          <div id="printContainer" class="bg-white"></div>
+        </div>
+
+        <div class="px-6 py-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+          <button
+            type="button"
+            onclick="downloadQrImage()"
+            class="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg"
+          >
+            Unduh Gambar QR (PNG)
+          </button>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              onclick="closeModal('qrPrintModal')"
+              class="px-4 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg"
+            >
+              Tutup
+            </button>
+            <button
+              type="button"
+              onclick="window.print()"
+              class="px-4 py-2 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 rounded-lg"
+            >
+              Cetak Sekarang
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- 6. MODAL TAMBAH AKUN PENGGUNA (KHUSUS ADMIN)                        -->
+    <!-- =================================================================== -->
+    <div
+      id="userModal"
+      class="hidden fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+    >
+      <div class="bg-white border border-slate-200 rounded-xl w-full max-w-md shadow-lg overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <h3 id="userModalTitle" class="text-base font-bold text-slate-900">Tambah Akun Pengguna</h3>
+          <button
+            type="button"
+            onclick="closeModal('userModal')"
+            class="text-slate-400 hover:text-slate-700 p-1 rounded-lg"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form id="userForm" class="p-6 space-y-4">
+          <div>
+            <label for="userFullName" class="block text-xs font-semibold text-slate-700 mb-1">
+              Nama Lengkap Petugas / Admin
+            </label>
+            <input
+              id="userFullName"
+              type="text"
+              required
+              placeholder="Misal: Budi Santoso"
+              class="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
+          </div>
+
+          <div>
+            <label id="userUsernameLabel" for="userUsername" class="block text-xs font-semibold text-slate-700 mb-1">
+              Username Login
+            </label>
+            <input
+              id="userUsername"
+              type="text"
+              required
+              placeholder="Misal: piket2"
+              class="w-full px-3 py-2 text-sm font-mono bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
+          </div>
+
+          <div id="userPasswordGroup">
+            <label for="userPassword" class="block text-xs font-semibold text-slate-700 mb-1">
+              Password
+            </label>
+            <input
+              id="userPassword"
+              type="password"
+              required
+              minlength="4"
+              placeholder="Minimal 4 karakter"
+              class="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
+          </div>
+
+          <div>
+            <label for="userRole" class="block text-xs font-semibold text-slate-700 mb-1">
+              Hak Akses (Role)
+            </label>
+            <select
+              id="userRole"
+              class="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+            >
+              <option value="piket">Petugas Piket (Dashboard, Scan QR, Riwayat Hari Ini)</option>
+              <option value="admin">Admin (Akses Penuh Database, Blokir, Akun &amp; Ekspor)</option>
+            </select>
+          </div>
+
+          <div id="userFormError" class="hidden p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 font-medium"></div>
+
+          <div class="flex items-center justify-end gap-2.5 pt-2">
+            <button
+              type="button"
+              onclick="closeModal('userModal')"
+              class="px-4 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              class="px-4 py-2 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 rounded-lg"
+            >
+              Simpan Akun
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- 7. MODAL KONFIRMASI UMUM (PENGGANTI window.confirm)                 -->
+    <!-- =================================================================== -->
+    <div
+      id="confirmModal"
+      class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+    >
+      <div class="bg-white border border-slate-200 rounded-xl w-full max-w-sm shadow-lg p-6 space-y-4">
+        <h3 id="confirmModalTitle" class="text-base font-bold text-slate-900">Konfirmasi</h3>
+        <p id="confirmModalMessage" class="text-sm text-slate-600 leading-relaxed">-</p>
+        <div class="flex items-center justify-end gap-2.5 pt-2">
+          <button
+            type="button"
+            onclick="closeModal('confirmModal')"
+            class="px-4 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg"
+          >
+            Batal
+          </button>
+          <button
+            id="confirmModalProceedBtn"
+            type="button"
+            class="px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg"
+          >
+            Ya, Lanjutkan
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notifikasi Toast -->
+    <div
+      id="toastContainer"
+      class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm pointer-events-none"
+    ></div>
+
+    <!-- =================================================================== -->
+    <!-- LOGIKA JAVASCRIPT (VANILLA JS)                                      -->
+    <!-- =================================================================== -->
+    <script>
+      'use strict';
+
+      // =====================================================================
+      // KONSTANTA PENYIMPANAN LOCALSTORAGE & STATE GLOBAL
+      // =====================================================================
+      const STORAGE_KEYS = {
+        USERS: 'laptop_qr_users_v1',
+        STUDENTS: 'laptop_qr_students_v1',
+        CLASSES: 'laptop_qr_classes_v1',
+        LOGS: 'laptop_qr_logs_v1',
+        SESSION: 'laptop_qr_session_v1',
+      };
+
+      let appState = {
+        authMode: 'local', // 'cloud' | 'local'
+        currentUser: null,
+        currentView: 'dashboard',
+        dashFilter: 'all',
+        historyScope: 'today',
+        uploadedPhotoBase64: '',
+        qrPrintMeta: { filename: 'qr-code.png' },
+        hasAutoSeededClasses: false,
+        // State Alur Scan 2 Langkah Ketat
+        scan: {
+          step: 1, // 1 = Menunggu QR Murid, 2 = Menunggu QR Unit Laptop
+          activeStudent: null,
+          statusType: 'idle', // 'idle' | 'blocked' | 'step1_ok' | 'mismatch' | 'success' | 'not_found'
+          statusTitle: '',
+          statusMessage: '',
+          ownerMismatchName: '',
+          transactionAction: '', // 'AMBIL' | 'KEMBALI'
+          transactionTime: '',
+          lastScanText: '',
+          lastScanAt: 0,
+        },
+        camera: {
+          instance: null,
+          isRunning: false,
+          selectedId: '',
+        },
+      };
+
+      let pendingConfirmCallback = null;
+
+      function isCloudMode() {
+        return appState.authMode === 'cloud' && Boolean(window.firebaseBackend?.getCurrentUser());
+      }
+
+      function parseBackendError(err) {
+        const raw = err instanceof Error ? err.message : String(err || 'Terjadi kesalahan.');
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.error) {
+            if (String(parsed.error).toLowerCase().includes('permission')) {
+              return `Izin Firestore ditolak (${parsed.operationType} ${parsed.path || ''}). Pastikan akun Google Anda memiliki peran yang sesuai.`;
+            }
+            return parsed.error;
+          }
+        } catch {
+          // bukan JSON FirestoreErrorInfo
+        }
+        return raw;
+      }
+
+      // =====================================================================
+      // HELPER AUDIO (WEB AUDIO API) UNTUK BEEP ERROR / SUKSES
+      // =====================================================================
+      function playSound(type) {
+        try {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (!AudioCtx) return;
+          const ctx = new AudioCtx();
+
+          if (type === 'success') {
+            // Nada konfirmasi ganda naik yang bersih
+            const notes = [660, 880];
+            notes.forEach((freq, idx) => {
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.11);
+              gain.gain.setValueAtTime(0.14, ctx.currentTime + idx * 0.11);
+              gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.11 + 0.14);
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              osc.start(ctx.currentTime + idx * 0.11);
+              osc.stop(ctx.currentTime + idx * 0.11 + 0.15);
+            });
+          } else if (type === 'step1') {
+            // Nada konfirmasi singkat Langkah 1
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+            gain.gain.setValueAtTime(0.12, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.14);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.15);
+          } else if (type === 'error' || type === 'alarm') {
+            // Suara peringatan keras / error beep untuk Murid Diblokir & Laptop Tertukar
+            const count = type === 'alarm' ? 3 : 2;
+            for (let i = 0; i < count; i++) {
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.type = 'sawtooth';
+              osc.frequency.setValueAtTime(type === 'alarm' ? 240 : 190, ctx.currentTime + i * 0.18);
+              gain.gain.setValueAtTime(0.22, ctx.currentTime + i * 0.18);
+              gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.18 + 0.15);
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              osc.start(ctx.currentTime + i * 0.18);
+              osc.stop(ctx.currentTime + i * 0.18 + 0.16);
+            }
+          }
+        } catch (err) {
+          // Abaikan jika browser membatasi AudioContext sebelum interaksi
+        }
+      }
+
+      // =====================================================================
+      // AVATAR SVG DEFAULT INLINE (TANPA URL EKSTERNAL)
+      // =====================================================================
+      function createDefaultAvatar(name) {
+        const initials = (name || 'M')
+          .trim()
+          .split(/\s+/)
+          .slice(0, 2)
+          .map((w) => w[0]?.toUpperCase() || '')
+          .join('') || 'M';
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+          <rect width="200" height="200" fill="#E2E8F0"/>
+          <circle cx="100" cy="76" r="34" fill="#94A3B8"/>
+          <path d="M36 184c0-35 28-60 64-60s64 25 64 60" fill="#94A3B8"/>
+          <text x="100" y="186" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="700" fill="#334155">${initials}</text>
+        </svg>`;
+        return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+      }
+
+      // =====================================================================
+      // DATA BAWAAN (SEEDING DEFAULT USERS, STUDENTS & LOGS)
+      // =====================================================================
+      function getDefaultUsers() {
+        return [
+          {
+            id: 'usr-admin-1',
+            username: 'admin',
+            password: 'admin123',
+            fullName: 'Raka Pratama (Admin)',
+            role: 'admin',
+          },
+          {
+            id: 'usr-piket-1',
+            username: 'piket',
+            password: 'piket123',
+            fullName: 'Dewi Lestari (Piket)',
+            role: 'piket',
+          },
+        ];
+      }
+
+      function getDefaultClasses() {
+        return ['X DKV 1', 'XI RPL 1', 'XI TKJ 2', 'XII RPL 2'];
+      }
+
+      function getDefaultStudents() {
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+        return [
+          {
+            nis: '20261001',
+            nama: 'Ahmad Fauzan',
+            kelas: 'XI RPL 1',
+            foto: '',
+            laptopCode: 'LPT-00001',
+            laptopBrand: 'Lenovo ThinkPad X13',
+            laptopStatus: 'tersedia', // 'tersedia' (Di Lemari) | 'dibawa' (Dibawa Murid)
+            blocked: false,
+            blockReason: '',
+            lastActivityAt: `${todayStr} 07:10`,
+            lastHandledBy: 'Dewi Lestari (Piket)',
+          },
+          {
+            nis: '20261002',
+            nama: 'Siti Nurhaliza',
+            kelas: 'XI RPL 1',
+            foto: '',
+            laptopCode: 'LPT-00002',
+            laptopBrand: 'ASUS ExpertBook B1',
+            laptopStatus: 'dibawa',
+            blocked: false,
+            blockReason: '',
+            lastActivityAt: `${todayStr} 07:18`,
+            lastHandledBy: 'Dewi Lestari (Piket)',
+          },
+          {
+            nis: '20261003',
+            nama: 'Bagus Saputra',
+            kelas: 'XI TKJ 2',
+            foto: '',
+            laptopCode: 'LPT-00003',
+            laptopBrand: 'HP ProBook 440 G9',
+            laptopStatus: 'tersedia',
+            blocked: true,
+            blockReason: 'Belum menyelesaikan administrasi lab dan denda keterlambatan pengembalian unit.',
+            lastActivityAt: `${todayStr} 07:22`,
+            lastHandledBy: 'Raka Pratama (Admin)',
+          },
+          {
+            nis: '20261004',
+            nama: 'Nadia Kusuma',
+            kelas: 'X DKV 1',
+            foto: '',
+            laptopCode: 'LPT-00004',
+            laptopBrand: 'Acer TravelMate P2',
+            laptopStatus: 'dibawa',
+            blocked: false,
+            blockReason: '',
+            lastActivityAt: `${todayStr} 07:35`,
+            lastHandledBy: 'Dewi Lestari (Piket)',
+          },
+          {
+            nis: '20261005',
+            nama: 'Reza Mahendra',
+            kelas: 'XII RPL 2',
+            foto: '',
+            laptopCode: 'LPT-00005',
+            laptopBrand: 'Dell Latitude 3430',
+            laptopStatus: 'tersedia',
+            blocked: false,
+            blockReason: '',
+            lastActivityAt: `${todayStr} 06:55`,
+            lastHandledBy: 'Raka Pratama (Admin)',
+          },
+        ];
+      }
+
+      function getDefaultLogs() {
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+        return [
+          {
+            id: 'log-seed-1',
+            dateKey: today,
+            nis: '20261002',
+            nama: 'Siti Nurhaliza',
+            kelas: 'XI RPL 1',
+            laptopCode: 'LPT-00002',
+            waktuAmbil: `${today} 07:18:12`,
+            waktuKembali: '',
+            petugasAmbil: 'Dewi Lestari (Piket)',
+            petugasKembali: '',
+            status: 'Dibawa Murid',
+          },
+          {
+            id: 'log-seed-2',
+            dateKey: today,
+            nis: '20261004',
+            nama: 'Nadia Kusuma',
+            kelas: 'X DKV 1',
+            laptopCode: 'LPT-00004',
+            waktuAmbil: `${today} 07:35:40`,
+            waktuKembali: '',
+            petugasAmbil: 'Dewi Lestari (Piket)',
+            petugasKembali: '',
+            status: 'Dibawa Murid',
+          },
+          {
+            id: 'log-seed-3',
+            dateKey: today,
+            nis: '20261001',
+            nama: 'Ahmad Fauzan',
+            kelas: 'XI RPL 1',
+            laptopCode: 'LPT-00001',
+            waktuAmbil: `${today} 06:45:05`,
+            waktuKembali: `${today} 07:10:28`,
+            petugasAmbil: 'Dewi Lestari (Piket)',
+            petugasKembali: 'Dewi Lestari (Piket)',
+            status: 'Selesai Kembali',
+          },
+        ];
+      }
+
+      // =====================================================================
+      // UTILITAS BACA / TULIS LOCALSTORAGE
+      // =====================================================================
+      function initStorage() {
+        if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
+          saveData(STORAGE_KEYS.USERS, getDefaultUsers());
+        }
+        if (!localStorage.getItem(STORAGE_KEYS.CLASSES)) {
+          saveData(STORAGE_KEYS.CLASSES, getDefaultClasses());
+        }
+        if (!localStorage.getItem(STORAGE_KEYS.STUDENTS)) {
+          saveData(STORAGE_KEYS.STUDENTS, getDefaultStudents());
+        }
+        if (!localStorage.getItem(STORAGE_KEYS.LOGS)) {
+          saveData(STORAGE_KEYS.LOGS, getDefaultLogs());
+        }
+      }
+
+      function loadData(key, fallback = []) {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw ? JSON.parse(raw) : fallback;
+        } catch {
+          return fallback;
+        }
+      }
+
+      function saveData(key, value) {
+        try {
+          localStorage.setItem(key, JSON.stringify(value));
+          return true;
+        } catch (err) {
+          showToast('Penyimpanan lokal penuh! Gunakan foto ukuran lebih kecil atau bersihkan riwayat.', 'error');
+          return false;
+        }
+      }
+
+      function getUsers() {
+        if (isCloudMode() && window.firebaseBackend) {
+          const roles = window.firebaseBackend.getStaffRoles();
+          if (roles.length > 0) return roles;
+          const u = window.firebaseBackend.getCurrentUser();
+          return u
+            ? [{ id: u.uid, email: u.email, fullName: u.fullName, role: u.role }]
+            : [];
+        }
+        return loadData(STORAGE_KEYS.USERS, []);
+      }
+
+      function getStudents() {
+        if (isCloudMode() && window.firebaseBackend) {
+          return window.firebaseBackend.getStudents();
+        }
+        return loadData(STORAGE_KEYS.STUDENTS, []);
+      }
+
+      function getClasses() {
+        if (isCloudMode() && window.firebaseBackend) {
+          return window.firebaseBackend.getClasses();
+        }
+        const list = loadData(STORAGE_KEYS.CLASSES, null);
+        if (Array.isArray(list)) return list;
+        const defaults = getDefaultClasses();
+        saveData(STORAGE_KEYS.CLASSES, defaults);
+        return defaults;
+      }
+
+      function getLogs() {
+        if (isCloudMode() && window.firebaseBackend) {
+          return window.firebaseBackend.getLogs();
+        }
+        return loadData(STORAGE_KEYS.LOGS, []);
+      }
+
+      function getTodayDateKey() {
+        const d = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      }
+
+      function formatNowTimestamp() {
+        const d = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      }
+
+      function escapeHtml(str) {
+        return String(str ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      // =====================================================================
+      // PEMBAGIAN HAK AKSES ADMIN VS PETUGAS PIKET (RBAC)
+      // =====================================================================
+      /**
+       * Peta Hak Akses (Role-Based Access Control):
+       * - 'piket': Hanya dapat mengakses menu 'dashboard', 'scan', dan 'history' (khusus hari ini, read-only).
+       *   Dilarang mengubah data murid, memblokir/membuka blokir, menghapus riwayat, mengekspor CSV, atau mengelola akun.
+       * - 'admin': Memiliki akses penuh ke seluruh menu ('dashboard', 'scan', 'history', 'students', 'users')
+       *   dan seluruh operasi CRUD, blokir murid, cetak QR, ekspor CSV, serta reset data dummy.
+       */
+      const ROLE_PERMISSIONS = {
+        admin: {
+          label: 'Administrator',
+          allowedViews: ['dashboard', 'scan', 'history', 'students', 'users'],
+          canManageStudents: true,
+          canBlockStudents: true,
+          canExportAllCsv: true,
+          canDeleteLogs: true,
+          canManageUsers: true,
+        },
+        piket: {
+          label: 'Petugas Piket',
+          allowedViews: ['dashboard', 'scan', 'history'],
+          canManageStudents: false,
+          canBlockStudents: false,
+          canExportAllCsv: false,
+          canDeleteLogs: false,
+          canManageUsers: false,
+        },
+      };
+
+      function hasPermission(permissionKey) {
+        if (!appState.currentUser) return false;
+        if (permissionKey === 'canManageUsers' && isCloudMode() && !appState.currentUser.isBootstrapAdmin) {
+          return false;
+        }
+        const roleConfig = ROLE_PERMISSIONS[appState.currentUser.role];
+        return Boolean(roleConfig && roleConfig[permissionKey]);
+      }
+
+      function isAdmin() {
+        return appState.currentUser && appState.currentUser.role === 'admin';
+      }
+
+      // =====================================================================
+      // AUTENTIKASI LOGIN / LOGOUT (GOOGLE CLOUD FIRESTORE & DEMO LOKAL)
+      // =====================================================================
+      function fillDemoAccount(username, password) {
+        document.getElementById('loginUsername').value = username;
+        document.getElementById('loginPassword').value = password;
+        document.getElementById('loginErrorBox').classList.add('hidden');
+      }
+
+      async function loginWithGoogle() {
+        const errBox = document.getElementById('loginErrorBox');
+        const btn = document.getElementById('btnGoogleLogin');
+        if (!window.firebaseBackend) {
+          errBox.textContent = 'Layanan Firebase masih dimuat, silakan tunggu sebentar lalu coba lagi.';
+          errBox.classList.remove('hidden');
+          return;
+        }
+
+        errBox.classList.add('hidden');
+        const prevHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.classList.add('opacity-70', 'cursor-wait');
+
+        try {
+          const cloudUser = await window.firebaseBackend.signInWithGoogle();
+          setActiveSession(cloudUser, 'cloud');
+        } catch (err) {
+          const msg = parseBackendError(err);
+          errBox.textContent = msg.includes('popup-closed-by-user')
+            ? 'Login Google dibatalkan sebelum selesai.'
+            : `Gagal masuk dengan Google: ${msg}`;
+          errBox.classList.remove('hidden');
+          playSound('error');
+        } finally {
+          btn.disabled = false;
+          btn.classList.remove('opacity-70', 'cursor-wait');
+          btn.innerHTML = prevHtml;
+        }
+      }
+
+      document.getElementById('loginForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        const username = document.getElementById('loginUsername').value.trim();
+        const password = document.getElementById('loginPassword').value;
+        const errBox = document.getElementById('loginErrorBox');
+
+        const users = loadData(STORAGE_KEYS.USERS, []);
+        const matched = users.find(
+          (u) => u.username.toLowerCase() === username.toLowerCase() && u.password === password
+        );
+
+        if (!matched) {
+          errBox.textContent = 'Username atau password tidak cocok. Silakan periksa kembali.';
+          errBox.classList.remove('hidden');
+          playSound('error');
+          return;
+        }
+
+        errBox.classList.add('hidden');
+        setActiveSession(matched, 'local');
+      });
+
+      function setActiveSession(user, mode = 'local') {
+        appState.authMode = mode;
+        appState.currentUser = {
+          id: user.id || user.uid,
+          uid: user.uid || user.id,
+          username: user.username || user.email || '',
+          email: user.email || '',
+          fullName: user.fullName,
+          role: user.role,
+          isBootstrapAdmin: Boolean(user.isBootstrapAdmin),
+        };
+
+        if (mode === 'local') {
+          localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(appState.currentUser));
+        } else {
+          localStorage.removeItem(STORAGE_KEYS.SESSION);
+        }
+
+        document.getElementById('loginScreen').classList.add('hidden');
+        document.getElementById('appShell').classList.remove('hidden');
+
+        // Tampilkan indikator role aktif pada sidebar & topbar
+        const roleLabel = ROLE_PERMISSIONS[user.role]?.label || user.role;
+        const modeTag = mode === 'cloud' ? 'Cloud Firestore' : 'Mode Lokal';
+        document.getElementById('sidebarUserName').textContent = user.fullName;
+        document.getElementById('sidebarUserRole').textContent = `${roleLabel} · ${modeTag}`;
+        document.getElementById('topbarRoleLabel').textContent = `${user.fullName} · ${roleLabel}`;
+
+        // Terapkan pembatasan default untuk Petugas Piket (hanya hari ini pada riwayat)
+        appState.historyScope = 'today';
+
+        renderNavigation();
+        navigateTo('dashboard');
+        showToast(`Selamat datang, ${user.fullName}`, 'success');
+      }
+
+      async function logoutUser() {
+        const wasCloud = isCloudMode();
+        stopCameraScanner();
+        resetScanFlow();
+        appState.currentUser = null;
+        appState.authMode = 'local';
+        appState.hasAutoSeededClasses = false;
+        localStorage.removeItem(STORAGE_KEYS.SESSION);
+
+        if (wasCloud && window.firebaseBackend) {
+          try {
+            await window.firebaseBackend.signOutUser();
+          } catch {
+            // abaikan error signOut
+          }
+        }
+
+        document.getElementById('appShell').classList.add('hidden');
+        document.getElementById('loginScreen').classList.remove('hidden');
+        document.getElementById('loginPassword').value = '';
+      }
+
+      // =====================================================================
+      // NAVIGASI BERBASIS ROLE (RBAC MENU RENDERING)
+      // =====================================================================
+      const NAV_ITEMS = [
+        { id: 'dashboard', label: 'Dashboard' },
+        { id: 'scan', label: 'Scan QR Sirkulasi' },
+        { id: 'history', label: 'Riwayat Sirkulasi' },
+        { id: 'students', label: 'Database Murid & Laptop' },
+        { id: 'users', label: 'Akun & Data Sistem' },
+      ];
+
+      function renderNavigation() {
+        if (!appState.currentUser) return;
+        const allowed = (ROLE_PERMISSIONS[appState.currentUser.role]?.allowedViews || []).filter(
+          (viewId) => !(viewId === 'users' && isCloudMode() && !appState.currentUser.isBootstrapAdmin)
+        );
+
+        const buildButtons = (isMobile) =>
+          NAV_ITEMS.filter((item) => allowed.includes(item.id))
+            .map((item) => {
+              const active = appState.currentView === item.id;
+              const cls = active
+                ? 'bg-orange-50 text-orange-800 font-semibold border border-orange-200'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium border border-transparent';
+              return `
+                <button
+                  type="button"
+                  onclick="navigateTo('${item.id}'); ${isMobile ? 'toggleMobileMenu(false)' : ''}"
+                  class="w-full text-left px-3.5 py-2.5 text-sm rounded-lg transition-colors whitespace-nowrap ${cls}"
+                >
+                  ${escapeHtml(item.label)}
+                </button>
+              `;
+            })
+            .join('');
+
+        document.getElementById('sidebarNav').innerHTML = buildButtons(false);
+        document.getElementById('mobileMenuDrawer').innerHTML = buildButtons(true);
+      }
+
+      function toggleMobileMenu(forceState) {
+        const drawer = document.getElementById('mobileMenuDrawer');
+        if (typeof forceState === 'boolean') {
+          drawer.classList.toggle('hidden', !forceState);
+        } else {
+          drawer.classList.toggle('hidden');
+        }
+      }
+
+      function navigateTo(viewId) {
+        if (!appState.currentUser) return;
+        const allowed = ROLE_PERMISSIONS[appState.currentUser.role]?.allowedViews || [];
+
+        // Penjaga RBAC: cegah Petugas Piket membuka halaman khusus Admin
+        if (!allowed.includes(viewId)) {
+          showToast('Akses ditolak! Halaman ini khusus untuk Administrator.', 'error');
+          viewId = 'dashboard';
+        }
+
+        // Matikan kamera jika meninggalkan halaman scan agar baterai & resource aman
+        if (appState.currentView === 'scan' && viewId !== 'scan') {
+          stopCameraScanner();
+        }
+
+        appState.currentView = viewId;
+        const titles = {
+          dashboard: 'Dashboard Piket Laptop',
+          scan: 'Scan QR Sirkulasi (2 Langkah)',
+          history: isAdmin() ? 'Riwayat Sirkulasi Laptop' : 'Riwayat Sirkulasi Hari Ini',
+          students: 'Database Murid & Laptop',
+          users: 'Akun Pengguna & Pemeliharaan Data',
+        };
+        document.getElementById('pageTitle').textContent = titles[viewId] || 'Dashboard';
+
+        // Sembunyikan semua section lalu tampilkan yang aktif
+        ['dashboard', 'scan', 'history', 'students', 'users'].forEach((id) => {
+          const el = document.getElementById(`view-${id}`);
+          if (el) el.classList.toggle('hidden', id !== viewId);
+        });
+
+        renderNavigation();
+
+        if (viewId === 'dashboard') renderDashboard();
+        if (viewId === 'scan') renderScanView();
+        if (viewId === 'history') renderHistory();
+        if (viewId === 'students') renderStudents();
+        if (viewId === 'users') renderUsers();
+      }
+
+      // =====================================================================
+      // HALAMAN 1: DASHBOARD — DAFTAR MURID DISUSPEND (DIBLOKIR)
+      // =====================================================================
+      function renderDashboard() {
+        const students = getStudents();
+        const adminMode = isAdmin();
+        const actionHeader = document.getElementById('dashActionHeader');
+        if (actionHeader) {
+          actionHeader.classList.toggle('hidden', !adminMode);
+        }
+
+        const query = (document.getElementById('dashSearchInput').value || '').trim().toLowerCase();
+        const suspended = students.filter((s) => {
+          if (!s.blocked) return false;
+          if (!query) return true;
+          return (
+            s.nama.toLowerCase().includes(query) ||
+            s.nis.toLowerCase().includes(query) ||
+            s.kelas.toLowerCase().includes(query) ||
+            s.laptopCode.toLowerCase().includes(query) ||
+            (s.blockReason || '').toLowerCase().includes(query)
+          );
+        });
+
+        const tbody = document.getElementById('dashboardTableBody');
+        const colSpan = adminMode ? 6 : 5;
+
+        if (suspended.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="${colSpan}" class="py-10 px-4 text-center text-sm text-slate-500">
+                ${
+                  query
+                    ? 'Tidak ada murid disuspend yang cocok dengan kata kunci pencarian.'
+                    : 'Tidak ada murid yang sedang disuspend. Semua murid aktif diizinkan mengambil laptop.'
+                }
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
+        tbody.innerHTML = suspended
+          .map((s) => {
+            const photoSrc = s.foto || createDefaultAvatar(s.nama);
+            return `
+              <tr class="hover:bg-red-50/40 transition-colors">
+                <td class="py-3.5 px-4">
+                  <div class="flex items-center gap-3">
+                    <img src="${photoSrc}" alt="${escapeHtml(s.nama)}" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src=createDefaultAvatar(this.alt)" class="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0" />
+                    <div>
+                      <p class="font-semibold text-slate-900">${escapeHtml(s.nama)}</p>
+                      <p class="text-[11px] font-semibold text-red-700">Suspend · Dilarang Mengambil Laptop</p>
+                    </div>
+                  </div>
+                </td>
+                <td class="py-3.5 px-4">
+                  <div class="font-mono text-xs text-slate-900 tabular-nums">${escapeHtml(s.nis)}</div>
+                  <div class="text-xs text-slate-500">${escapeHtml(s.kelas)}</div>
+                </td>
+                <td class="py-3.5 px-4">
+                  <div class="font-mono text-xs font-semibold text-slate-900 tabular-nums">${escapeHtml(s.laptopCode)}</div>
+                  <div class="text-xs text-slate-500">${escapeHtml(s.laptopBrand)}</div>
+                </td>
+                <td class="py-3.5 px-4">
+                  <p class="text-xs font-medium text-red-700 max-w-xs leading-relaxed">
+                    ${escapeHtml(s.blockReason || 'Ditangguhkan oleh Administrator')}
+                  </p>
+                </td>
+                <td class="py-3.5 px-4">
+                  <div class="font-mono text-xs text-slate-700 tabular-nums">${escapeHtml(s.lastActivityAt || '-')}</div>
+                  <div class="text-[11px] text-slate-500">${escapeHtml(s.lastHandledBy || '-')}</div>
+                </td>
+                ${
+                  adminMode
+                    ? `<td class="py-3.5 px-4 text-right">
+                        <button
+                          type="button"
+                          onclick="unblockStudent('${escapeHtml(s.nis)}')"
+                          class="px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md whitespace-nowrap"
+                        >
+                          Buka Suspend
+                        </button>
+                      </td>`
+                    : ''
+                }
+              </tr>
+            `;
+          })
+          .join('');
+      }
+
+      // =====================================================================
+      // HALAMAN 2: ALUR SCAN QR 2 LANGKAH KETAT (BLOKIR & ANTI TERTUKAR)
+      // =====================================================================
+      function renderScanView() {
+        // Muat tombol sampel payload QR untuk memudahkan pengujian cepat
+        const students = getStudents();
+        const samplesContainer = document.getElementById('quickTestSamples');
+        if (students.length > 0) {
+          const sampleBtns = students.slice(0, 3).map((s) => {
+            const label = s.blocked ? `${s.nis} (Diblokir)` : `${s.nis} · ${s.laptopCode}`;
+            return `
+              <button
+                type="button"
+                onclick="handleQuickSample('${escapeHtml(s.nis)}', '${escapeHtml(s.laptopCode)}')"
+                class="px-2 py-1 text-[11px] font-mono bg-slate-100 hover:bg-slate-200 text-slate-700 rounded border border-slate-200 transition-colors"
+                title="Klik untuk mengisi kode ke input manual"
+              >
+                ${escapeHtml(label)}
+              </button>
+            `;
+          });
+          samplesContainer.innerHTML =
+            '<span class="text-[11px] text-slate-500 self-center mr-1">Contoh cepat:</span>' +
+            sampleBtns.join('');
+        } else {
+          samplesContainer.innerHTML = '';
+        }
+
+        renderScanPanel();
+      }
+
+      function handleQuickSample(nis, laptopCode) {
+        // Isi otomatis sesuai langkah aktif agar uji alur 2 langkah cepat
+        const input = document.getElementById('manualQrInput');
+        if (appState.scan.step === 1) {
+          input.value = nis;
+        } else {
+          input.value = laptopCode;
+        }
+        input.focus();
+      }
+
+      function resetScanFlow() {
+        appState.scan = {
+          step: 1,
+          activeStudent: null,
+          statusType: 'idle',
+          statusTitle: '',
+          statusMessage: '',
+          ownerMismatchName: '',
+          transactionAction: '',
+          transactionTime: '',
+          lastScanText: '',
+          lastScanAt: 0,
+        };
+        document.getElementById('manualQrInput').value = '';
+        renderScanPanel();
+      }
+
+      document.getElementById('manualQrForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        const code = document.getElementById('manualQrInput').value.trim();
+        if (!code) return;
+        processScannedQrCode(code, true);
+      });
+
+      /**
+       * FUNGSI INTI VALIDASI QR 2 LANGKAH KETAT:
+       * Langkah 1: Validasi QR Kartu Murid & Pengecekan Status Blokir Murid.
+       * Langkah 2: Validasi QR Unit Laptop & Pengecekan Kecocokan 1-on-1 Milik Murid.
+       */
+      async function processScannedQrCode(rawCode, isManual = false) {
+        const code = String(rawCode || '').trim();
+        if (!code) return;
+
+        // Cegah pembacaan berulang dari kamera dalam jeda < 1.8 detik
+        const nowMs = Date.now();
+        if (!isManual && code === appState.scan.lastScanText && nowMs - appState.scan.lastScanAt < 1800) {
+          return;
+        }
+        appState.scan.lastScanText = code;
+        appState.scan.lastScanAt = nowMs;
+
+        const students = getStudents();
+
+        // ===================================================================
+        // LANGKAH 1: SCAN QR KARTU MURID & VALIDASI BLOKIR MURID
+        // ===================================================================
+        if (appState.scan.step === 1) {
+          const student = students.find((s) => s.nis.toLowerCase() === code.toLowerCase());
+
+          if (!student) {
+            playSound('error');
+            appState.scan.statusType = 'not_found';
+            appState.scan.statusTitle = 'QR Kartu Murid Tidak Dikenal';
+            appState.scan.statusMessage = `Kode "${code}" tidak terdaftar sebagai NIS / ID Murid di database sekolah.`;
+            renderScanPanel();
+            return;
+          }
+
+          // [VALIDASI BLOKIR MURID]
+          if (student.blocked) {
+            playSound('error');
+            appState.scan.step = 1; // Kunci tetap di Langkah 1
+            appState.scan.activeStudent = student;
+            appState.scan.statusType = 'blocked';
+            appState.scan.statusTitle = 'AKSES DITOLAK — MURID SEDANG DIBLOKIR';
+            appState.scan.statusMessage =
+              student.blockReason || 'Murid ini diblokir oleh Administrator.';
+            renderScanPanel();
+            return;
+          }
+
+          // Murid Aktif (Tidak Diblokir) -> Tampilkan Foto Besar & Lanjut ke Langkah 2
+          playSound('step1');
+          appState.scan.step = 2;
+          appState.scan.activeStudent = student;
+          appState.scan.statusType = 'step1_ok';
+          appState.scan.statusTitle = 'Murid Terverifikasi Aktif';
+          appState.scan.statusMessage =
+            'Cocokkan wajah murid dengan foto di bawah, lalu pindai QR Code pada unit laptop.';
+          document.getElementById('manualQrInput').value = '';
+          renderScanPanel();
+          return;
+        }
+
+        // ===================================================================
+        // LANGKAH 2: SCAN QR UNIT LAPTOP & PENGECEKAN KECOCOKAN KEPEMILIKAN
+        // ===================================================================
+        if (appState.scan.step === 2 && appState.scan.activeStudent) {
+          const currentStudent = students.find(
+            (s) => s.nis === appState.scan.activeStudent.nis
+          );
+
+          if (!currentStudent) {
+            resetScanFlow();
+            return;
+          }
+
+          // Jika kamera masih membaca kartu QR murid yang baru saja dipindai, abaikan dengan halus
+          if (!isManual && code.toLowerCase() === currentStudent.nis.toLowerCase()) {
+            document.getElementById('cameraStatusMsg').textContent =
+              'Kartu murid masih terbaca — sekarang arahkan kamera ke Stiker QR Laptop.';
+            return;
+          }
+
+          // [VALIDASI KECOCOKAN LAPTOP MILIK MURID (ANTI TERTUKAR)]
+          const isMatched =
+            code.toLowerCase() === currentStudent.laptopCode.toLowerCase();
+
+          if (!isMatched) {
+            const actualOwner = students.find(
+              (s) => s.laptopCode.toLowerCase() === code.toLowerCase()
+            );
+
+            playSound('alarm');
+            appState.scan.statusType = 'mismatch';
+            appState.scan.statusTitle = 'TRANSAKSI DITOLAK — LAPTOP TIDAK COCOK!';
+            if (actualOwner) {
+              appState.scan.statusMessage = `PERINGATAN! Laptop ini (${actualOwner.laptopCode}) BUKAN milik ${currentStudent.nama}. Laptop ini terdaftar atas nama ${actualOwner.nama} (${actualOwner.kelas})!`;
+            } else {
+              appState.scan.statusMessage = `PERINGATAN! Kode QR "${code}" BUKAN milik ${currentStudent.nama}. Unit yang seharusnya diambil/dikembalikan adalah ${currentStudent.laptopCode} (${currentStudent.laptopBrand}).`;
+            }
+            renderScanPanel();
+            return;
+          }
+
+          // [KECOCOKAN VALID -> CATAT TRANSAKSI PENGAMBILAN / PENGEMBALIAN]
+          const timestamp = formatNowTimestamp();
+          const todayKey = getTodayDateKey();
+          const handlerName = appState.currentUser.fullName;
+          const logs = getLogs();
+          const isCheckout = currentStudent.laptopStatus === 'tersedia';
+
+          if (isCloudMode() && window.firebaseBackend) {
+            try {
+              if (isCheckout) {
+                await window.firebaseBackend.recordCirculationCheckout(
+                  currentStudent,
+                  timestamp,
+                  todayKey,
+                  handlerName
+                );
+              } else {
+                const openLog = logs.find(
+                  (l) =>
+                    l.nis === currentStudent.nis &&
+                    l.status === 'Dibawa Murid' &&
+                    !l.waktuKembali
+                );
+                await window.firebaseBackend.recordCirculationReturn(
+                  currentStudent,
+                  openLog ? openLog.id : null,
+                  timestamp,
+                  todayKey,
+                  handlerName
+                );
+              }
+            } catch (err) {
+              playSound('error');
+              showToast(`Gagal mencatat sirkulasi ke Firestore: ${parseBackendError(err)}`, 'error');
+              return;
+            }
+          } else {
+            const localStudents = [...students];
+            const localLogs = [...logs];
+            const target = localStudents.find((s) => s.nis === currentStudent.nis);
+            if (!target) return;
+
+            if (isCheckout) {
+              target.laptopStatus = 'dibawa';
+              target.lastActivityAt = timestamp;
+              target.lastHandledBy = handlerName;
+              localLogs.unshift({
+                id: 'log-' + Date.now(),
+                dateKey: todayKey,
+                nis: target.nis,
+                nama: target.nama,
+                kelas: target.kelas,
+                laptopCode: target.laptopCode,
+                waktuAmbil: timestamp,
+                waktuKembali: '',
+                petugasAmbil: handlerName,
+                petugasKembali: '',
+                status: 'Dibawa Murid',
+              });
+            } else {
+              target.laptopStatus = 'tersedia';
+              target.lastActivityAt = timestamp;
+              target.lastHandledBy = handlerName;
+              const openLog = localLogs.find((l) => l.nis === target.nis && !l.waktuKembali);
+              if (openLog) {
+                openLog.waktuKembali = timestamp;
+                openLog.petugasKembali = handlerName;
+                openLog.status = 'Selesai Kembali';
+              } else {
+                localLogs.unshift({
+                  id: 'log-' + Date.now(),
+                  dateKey: todayKey,
+                  nis: target.nis,
+                  nama: target.nama,
+                  kelas: target.kelas,
+                  laptopCode: target.laptopCode,
+                  waktuAmbil: '-',
+                  waktuKembali: timestamp,
+                  petugasAmbil: '-',
+                  petugasKembali: handlerName,
+                  status: 'Selesai Kembali',
+                });
+              }
+            }
+            saveData(STORAGE_KEYS.STUDENTS, localStudents);
+            saveData(STORAGE_KEYS.LOGS, localLogs);
+          }
+
+          if (isCheckout) {
+            appState.scan.transactionAction = 'PENGAMBILAN LAPTOP BERHASIL';
+            appState.scan.statusMessage = `Unit ${currentStudent.laptopCode} (${currentStudent.laptopBrand}) resmi diserahkan kepada ${currentStudent.nama}.`;
+          } else {
+            appState.scan.transactionAction = 'PENGEMBALIAN LAPTOP BERHASIL';
+            appState.scan.statusMessage = `Unit ${currentStudent.laptopCode} (${currentStudent.laptopBrand}) telah dikembalikan ke lemari oleh ${currentStudent.nama}.`;
+          }
+
+          playSound('success');
+          appState.scan.activeStudent = {
+            ...currentStudent,
+            laptopStatus: isCheckout ? 'dibawa' : 'tersedia',
+            lastActivityAt: timestamp,
+            lastHandledBy: handlerName,
+          };
+          appState.scan.statusType = 'success';
+          appState.scan.transactionTime = timestamp;
+          document.getElementById('manualQrInput').value = '';
+          renderScanPanel();
+        }
+      }
+
+      function renderScanPanel() {
+        const instr = document.getElementById('scannerInstructionLabel');
+        const panel = document.getElementById('scanResultPanel');
+
+        const { step, activeStudent, statusType, statusTitle, statusMessage } = appState.scan;
+
+        // Perbarui instruksi pemindaian aktif
+        if (statusType === 'blocked') {
+          instr.textContent = 'Murid diblokir — klik Reset Sesi untuk murid lain';
+        } else if (step === 1) {
+          instr.textContent = 'Langkah 1: Pindai QR Kartu Murid';
+        } else if (statusType === 'success') {
+          instr.textContent = 'Transaksi tercatat — siap untuk murid berikutnya';
+        } else {
+          instr.textContent = `Langkah 2: Pindai Stiker QR Laptop (${activeStudent?.laptopCode || ''})`;
+        }
+
+        // Render isi panel hasil pemindaian
+        if (statusType === 'idle') {
+          panel.innerHTML = `
+            <div class="text-center max-w-md mx-auto py-10 space-y-3">
+              <div class="w-14 h-14 mx-auto rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-500">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                </svg>
+              </div>
+              <h3 class="text-base font-bold text-slate-900">Menunggu Pemindaian Kartu Murid</h3>
+              <p class="text-sm text-slate-500 leading-relaxed">
+                Pindai QR Code pada kartu pelajar terlebih dahulu. Sistem akan memeriksa status blokir dan menampilkan foto wajah murid sebelum unit laptop dapat dipindai.
+              </p>
+            </div>
+          `;
+          return;
+        }
+
+        if (statusType === 'not_found') {
+          panel.innerHTML = `
+            <div class="p-6 rounded-xl bg-red-50 border border-red-300 space-y-3 text-center">
+              <p class="text-xs font-mono font-bold text-red-700">ERROR VALIDASI LANGKAH 1</p>
+              <h3 class="text-xl font-bold text-red-800">${escapeHtml(statusTitle)}</h3>
+              <p class="text-sm text-red-700">${escapeHtml(statusMessage)}</p>
+              <div class="pt-2">
+                <button type="button" onclick="resetScanFlow()" class="px-4 py-2 bg-red-700 hover:bg-red-800 text-white text-xs font-semibold rounded-lg">
+                  Scan Ulang Kartu Murid
+                </button>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        // TAMPILAN PERINGATAN MERAH BESAR: MURID DIBLOKIR
+        if (statusType === 'blocked' && activeStudent) {
+          const photoSrc = activeStudent.foto || createDefaultAvatar(activeStudent.nama);
+          panel.innerHTML = `
+            <div class="p-6 rounded-xl bg-red-600 text-white space-y-5">
+              <div class="flex items-start justify-between gap-4 border-b border-red-500 pb-4">
+                <div>
+                  <p class="text-xs font-mono tracking-wide text-red-100">PERINGATAN KEAMANAN SIRKULASI</p>
+                  <h3 class="mt-1 text-xl sm:text-2xl font-bold">${escapeHtml(statusTitle)}</h3>
+                </div>
+              </div>
+
+              <div class="flex flex-col sm:flex-row items-center sm:items-start gap-5 bg-red-700/60 p-4 rounded-xl border border-red-400/50">
+                <img
+                  src="${photoSrc}"
+                  alt="${escapeHtml(activeStudent.nama)}"
+                  referrerpolicy="no-referrer"
+                  onerror="this.onerror=null;this.src=createDefaultAvatar(this.alt)"
+                  class="w-32 h-32 rounded-xl object-cover border-2 border-white shrink-0 bg-white"
+                />
+                <div class="space-y-2 text-center sm:text-left">
+                  <div>
+                    <p class="text-xl font-bold text-white">${escapeHtml(activeStudent.nama)}</p>
+                    <p class="text-sm font-mono text-red-100 tabular-nums">${escapeHtml(activeStudent.nis)} · ${escapeHtml(activeStudent.kelas)}</p>
+                  </div>
+                  <div class="pt-2">
+                    <p class="text-xs font-semibold text-red-100">Alasan Pemblokiran dari Admin:</p>
+                    <p class="mt-1 text-sm font-semibold bg-white text-red-800 px-3.5 py-2.5 rounded-lg">
+                      ${escapeHtml(statusMessage)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+                <p class="text-xs text-red-100">
+                  Proses dihentikan. Murid diarahkan menemui Admin untuk penyelesaian blokir.
+                </p>
+                <button
+                  type="button"
+                  onclick="resetScanFlow()"
+                  class="px-4 py-2.5 bg-white hover:bg-red-50 text-red-800 text-xs font-bold rounded-lg whitespace-nowrap shrink-0"
+                >
+                  Reset &amp; Scan Murid Lain
+                </button>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        // TAMPILAN LANGKAH 1 LOLOS (MENUNGGU SCAN LAPTOP) ATAU ERROR LAPTOP TERTUKAR
+        if ((statusType === 'step1_ok' || statusType === 'mismatch') && activeStudent) {
+          const photoSrc = activeStudent.foto || createDefaultAvatar(activeStudent.nama);
+          const nextMode =
+            activeStudent.laptopStatus === 'tersedia'
+              ? 'PENGAMBILAN LAPTOP (Dari Lemari ke Murid)'
+              : 'PENGEMBALIAN LAPTOP (Dari Murid ke Lemari)';
+
+          const mismatchBanner =
+            statusType === 'mismatch'
+              ? `
+                <div class="p-4 rounded-xl bg-red-600 text-white space-y-1.5">
+                  <p class="text-xs font-mono font-bold text-red-100">VALIDASI ANTI-TERTUKAR GAGAL</p>
+                  <p class="text-base font-bold">${escapeHtml(statusTitle)}</p>
+                  <p class="text-sm text-red-50 leading-relaxed">${escapeHtml(statusMessage)}</p>
+                </div>
+              `
+              : `
+                <div class="p-4 rounded-xl bg-orange-50 border border-orange-200">
+                  <p class="text-xs font-semibold text-orange-900">Langkah 2 Aktif — Verifikasi Fisik &amp; Pindai Stiker QR Laptop</p>
+                  <p class="text-xs text-orange-800 mt-1">
+                    Pastikan wajah murid sesuai foto di bawah, lalu pindai QR Code pada laptop <strong class="font-mono">${escapeHtml(activeStudent.laptopCode)}</strong>.
+                  </p>
+                </div>
+              `;
+
+          panel.innerHTML = `
+            <div class="space-y-5">
+              ${mismatchBanner}
+
+              <!-- Foto Murid Berukuran Besar untuk Pencocokan Wajah Fisik -->
+              <div class="flex flex-col sm:flex-row items-center sm:items-start gap-5 p-5 rounded-xl bg-slate-50 border border-slate-200">
+                <img
+                  src="${photoSrc}"
+                  alt="${escapeHtml(activeStudent.nama)}"
+                  referrerpolicy="no-referrer"
+                  onerror="this.onerror=null;this.src=createDefaultAvatar(this.alt)"
+                  class="w-36 h-36 rounded-xl object-cover border border-slate-300 bg-white shrink-0"
+                />
+                <div class="flex-1 min-w-0 space-y-3 text-center sm:text-left">
+                  <div>
+                    <p class="text-xs font-medium text-emerald-700">Status Murid: Aktif Diizinkan</p>
+                    <h3 class="text-xl font-bold text-slate-900 mt-0.5">${escapeHtml(activeStudent.nama)}</h3>
+                    <p class="text-sm font-mono text-slate-600 tabular-nums">${escapeHtml(activeStudent.nis)} · ${escapeHtml(activeStudent.kelas)}</p>
+                  </div>
+
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200">
+                    <div>
+                      <p class="text-[11px] font-medium text-slate-500">Unit Laptop Terdaftar</p>
+                      <p class="text-base font-mono font-bold text-slate-900 tabular-nums">${escapeHtml(activeStudent.laptopCode)}</p>
+                      <p class="text-xs text-slate-600">${escapeHtml(activeStudent.laptopBrand)}</p>
+                    </div>
+                    <div>
+                      <p class="text-[11px] font-medium text-slate-500">Jenis Transaksi Berikutnya</p>
+                      <p class="text-xs font-bold ${activeStudent.laptopStatus === 'tersedia' ? 'text-orange-700' : 'text-amber-700'} mt-0.5">
+                        ${nextMode}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between gap-3">
+                <span class="text-xs text-slate-500">Petugas melayani: <strong class="text-slate-800">${escapeHtml(appState.currentUser.fullName)}</strong></span>
+                <button
+                  type="button"
+                  onclick="resetScanFlow()"
+                  class="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg"
+                >
+                  Batalkan / Ganti Murid
+                </button>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        // TAMPILAN SUKSES TRANSAKSI LANGKAH 2
+        if (statusType === 'success' && activeStudent) {
+          const photoSrc = activeStudent.foto || createDefaultAvatar(activeStudent.nama);
+          panel.innerHTML = `
+            <div class="p-6 rounded-xl bg-emerald-50 border border-emerald-300 space-y-5">
+              <div>
+                <p class="text-xs font-mono font-bold text-emerald-700">VERIFIKASI 1-ON-1 COCOK</p>
+                <h3 class="mt-1 text-2xl font-bold text-emerald-900">${escapeHtml(appState.scan.transactionAction)}</h3>
+                <p class="mt-1 text-sm text-emerald-800">${escapeHtml(statusMessage)}</p>
+              </div>
+
+              <div class="flex items-center gap-4 p-4 bg-white rounded-xl border border-emerald-200">
+                <img src="${photoSrc}" alt="${escapeHtml(activeStudent.nama)}" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src=createDefaultAvatar(this.alt)" class="w-16 h-16 rounded-lg object-cover border border-slate-200 shrink-0" />
+                <div class="min-w-0 flex-1">
+                  <p class="text-base font-bold text-slate-900">${escapeHtml(activeStudent.nama)}</p>
+                  <p class="text-xs font-mono text-slate-600 tabular-nums">
+                    ${escapeHtml(activeStudent.nis)} · ${escapeHtml(activeStudent.kelas)} · ${escapeHtml(activeStudent.laptopCode)}
+                  </p>
+                  <p class="text-xs text-slate-500 mt-1 font-mono tabular-nums">
+                    Waktu: ${escapeHtml(appState.scan.transactionTime)} · Petugas: ${escapeHtml(appState.currentUser.fullName)}
+                  </p>
+                </div>
+              </div>
+
+              <div class="flex justify-end">
+                <button
+                  type="button"
+                  onclick="resetScanFlow()"
+                  class="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg"
+                >
+                  Selesai &amp; Scan Murid Berikutnya
+                </button>
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      // =====================================================================
+      // INTEGRASI KAMERA HTML5-QRCODE (CDN)
+      // =====================================================================
+      async function toggleCameraScanner() {
+        if (appState.camera.isRunning) {
+          await stopCameraScanner();
+          return;
+        }
+
+        const statusEl = document.getElementById('cameraStatusMsg');
+        const btn = document.getElementById('btnToggleCamera');
+
+        if (typeof Html5Qrcode === 'undefined') {
+          statusEl.textContent = 'Pustaka html5-qrcode gagal dimuat. Gunakan input manual di bawah.';
+          return;
+        }
+
+        try {
+          statusEl.textContent = 'Meminta izin akses kamera...';
+          const cameras = await Html5Qrcode.getCameras();
+          const select = document.getElementById('cameraSelect');
+
+          if (!cameras || cameras.length === 0) {
+            statusEl.textContent = 'Tidak ada kamera terdeteksi. Gunakan input manual atau barcode scanner.';
+            return;
+          }
+
+          // Isi daftar kamera
+          const prevVal = select.value;
+          select.innerHTML = cameras
+            .map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label || 'Kamera ' + c.id)}</option>`)
+            .join('');
+
+          // Pilih kamera belakang jika tersedia
+          const backCam = cameras.find((c) => /back|rear|environment/i.test(c.label));
+          const chosenId = prevVal && cameras.some((c) => c.id === prevVal)
+            ? prevVal
+            : backCam
+            ? backCam.id
+            : cameras[0].id;
+          select.value = chosenId;
+
+          if (!appState.camera.instance) {
+            appState.camera.instance = new Html5Qrcode('qr-reader');
+          }
+
+          document.getElementById('cameraPlaceholder').classList.add('hidden');
+          await appState.camera.instance.start(
+            chosenId,
+            { fps: 10, qrbox: { width: 220, height: 220 } },
+            (decodedText) => {
+              processScannedQrCode(decodedText, false);
+            },
+            () => {
+              // Abaikan error frame kosong saat kamera mencari QR
+            }
+          );
+
+          appState.camera.isRunning = true;
+          btn.textContent = 'Matikan Kamera';
+          btn.className =
+            'px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors whitespace-nowrap shrink-0';
+          statusEl.textContent = 'Kamera aktif dan siap memindai QR Code.';
+        } catch (err) {
+          document.getElementById('cameraPlaceholder').classList.remove('hidden');
+          statusEl.textContent =
+            'Izin kamera ditolak atau tidak tersedia pada perangkat ini. Silakan gunakan input QR manual.';
+        }
+      }
+
+      async function stopCameraScanner() {
+        const btn = document.getElementById('btnToggleCamera');
+        const statusEl = document.getElementById('cameraStatusMsg');
+        if (appState.camera.instance && appState.camera.isRunning) {
+          try {
+            await appState.camera.instance.stop();
+          } catch (err) {
+            // Abaikan jika sudah berhenti
+          }
+        }
+        appState.camera.isRunning = false;
+        if (document.getElementById('cameraPlaceholder')) {
+          document.getElementById('cameraPlaceholder').classList.remove('hidden');
+        }
+        if (btn) {
+          btn.textContent = 'Aktifkan Kamera';
+          btn.className =
+            'px-4 py-2 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 rounded-lg transition-colors whitespace-nowrap shrink-0';
+        }
+        if (statusEl) {
+          statusEl.textContent = '';
+        }
+      }
+
+      // =====================================================================
+      // HALAMAN 3: RIWAYAT SIRKULASI & EKSPOR CSV (ADMIN ONLY)
+      // =====================================================================
+      function setHistoryScope(scope) {
+        if (!isAdmin() && scope === 'all') {
+          showToast('Petugas Piket hanya diizinkan melihat riwayat hari ini.', 'error');
+          return;
+        }
+        appState.historyScope = scope;
+        renderHistory();
+      }
+
+      function renderHistory() {
+        const logs = getLogs();
+        const students = getStudents();
+        const studentMap = new Map(students.map((s) => [s.nis, s]));
+        const todayKey = getTodayDateKey();
+        const adminMode = isAdmin();
+
+        // Terapkan pembatasan hak akses Admin vs Piket di UI Riwayat
+        document.getElementById('btnExportCsv').classList.toggle('hidden', !adminMode);
+        document.getElementById('historyActionHeader').classList.toggle('hidden', !adminMode);
+        document.getElementById('historyPeriodControls').classList.toggle('hidden', !adminMode);
+        document.getElementById('historySubtitle').textContent = adminMode
+          ? 'Seluruh log pengambilan & pengembalian laptop beserta ekspor CSV'
+          : `Hanya menampilkan riwayat sirkulasi hari ini (${todayKey}) — mode lihat saja`;
+
+        if (!adminMode) {
+          appState.historyScope = 'today';
+        }
+
+        document.querySelectorAll('.hist-scope-btn').forEach((btn) => {
+          const active = btn.getAttribute('data-hist-scope') === appState.historyScope;
+          btn.className = `hist-scope-btn px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+            active ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+          }`;
+        });
+
+        const query = (document.getElementById('historySearchInput').value || '').trim().toLowerCase();
+        const filtered = logs.filter((log) => {
+          if (appState.historyScope === 'today' && log.dateKey !== todayKey) return false;
+          if (!query) return true;
+          return (
+            log.nama.toLowerCase().includes(query) ||
+            log.nis.toLowerCase().includes(query) ||
+            log.kelas.toLowerCase().includes(query) ||
+            log.laptopCode.toLowerCase().includes(query) ||
+            (log.petugasAmbil || '').toLowerCase().includes(query) ||
+            (log.petugasKembali || '').toLowerCase().includes(query)
+          );
+        });
+
+        const tbody = document.getElementById('historyTableBody');
+        const colSpan = adminMode ? 8 : 7;
+
+        if (filtered.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="${colSpan}" class="py-10 px-4 text-center text-sm text-slate-500">
+                Belum ada catatan sirkulasi untuk periode atau pencarian ini.
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
+        tbody.innerHTML = filtered
+          .map((log) => {
+            const st = studentMap.get(log.nis);
+            const photoSrc = st?.foto || createDefaultAvatar(log.nama);
+            const petugas =
+              log.petugasKembali && log.petugasKembali !== log.petugasAmbil
+                ? `Ambil: ${log.petugasAmbil} / Kembali: ${log.petugasKembali}`
+                : log.petugasAmbil || log.petugasKembali || '-';
+
+            const statusHtml =
+              log.status === 'Dibawa Murid'
+                ? '<span class="text-xs font-semibold text-amber-700">Dibawa Murid</span>'
+                : '<span class="text-xs font-semibold text-emerald-700">Selesai Kembali</span>';
+
+            return `
+              <tr class="hover:bg-slate-50/80 transition-colors">
+                <td class="py-3 px-4 font-mono text-xs text-slate-800 tabular-nums whitespace-nowrap">${escapeHtml(log.waktuAmbil || '-')}</td>
+                <td class="py-3 px-4 font-mono text-xs text-slate-800 tabular-nums whitespace-nowrap">${escapeHtml(log.waktuKembali || '-')}</td>
+                <td class="py-3 px-4">
+                  <div class="flex items-center gap-2.5">
+                    <img src="${photoSrc}" alt="${escapeHtml(log.nama)}" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src=createDefaultAvatar(this.alt)" class="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0" />
+                    <div>
+                      <p class="font-semibold text-slate-900 text-xs sm:text-sm">${escapeHtml(log.nama)}</p>
+                      <p class="font-mono text-[11px] text-slate-500 tabular-nums">${escapeHtml(log.nis)}</p>
+                    </div>
+                  </div>
+                </td>
+                <td class="py-3 px-4 text-xs text-slate-700 whitespace-nowrap">${escapeHtml(log.kelas)}</td>
+                <td class="py-3 px-4 font-mono text-xs font-semibold text-slate-900 tabular-nums whitespace-nowrap">${escapeHtml(log.laptopCode)}</td>
+                <td class="py-3 px-4 text-xs text-slate-700">${escapeHtml(petugas)}</td>
+                <td class="py-3 px-4 whitespace-nowrap">${statusHtml}</td>
+                ${
+                  adminMode
+                    ? `<td class="py-3 px-4 text-right">
+                        <button type="button" onclick="deleteSingleLog('${escapeHtml(log.id)}')" class="text-xs font-medium text-red-600 hover:underline">
+                          Hapus
+                        </button>
+                      </td>`
+                    : ''
+                }
+              </tr>
+            `;
+          })
+          .join('');
+      }
+
+      function deleteSingleLog(logId) {
+        if (!hasPermission('canDeleteLogs')) {
+          showToast('Hanya Admin yang dapat menghapus riwayat sirkulasi.', 'error');
+          return;
+        }
+        confirmAction('Hapus Entri Riwayat?', 'Catatan sirkulasi ini akan dihapus permanen.', async () => {
+          if (isCloudMode() && window.firebaseBackend) {
+            try {
+              await window.firebaseBackend.deleteCirculationLog(logId);
+              showToast('Entri riwayat dihapus dari Firestore.', 'success');
+            } catch (err) {
+              showToast(`Gagal menghapus log: ${parseBackendError(err)}`, 'error');
+            }
+            return;
+          }
+          const updated = getLogs().filter((l) => l.id !== logId);
+          saveData(STORAGE_KEYS.LOGS, updated);
+          renderHistory();
+          showToast('Entri riwayat dihapus.', 'success');
+        });
+      }
+
+      function exportHistoryCSV() {
+        if (!hasPermission('canExportAllCsv')) {
+          showToast('Akses ditolak: Ekspor laporan CSV hanya untuk Administrator.', 'error');
+          return;
+        }
+        const logs = getLogs();
+        if (logs.length === 0) {
+          showToast('Tidak ada data riwayat untuk diekspor.', 'error');
+          return;
+        }
+
+        const headers = [
+          'ID Transaksi',
+          'Tanggal',
+          'Waktu Ambil',
+          'Waktu Kembali',
+          'NIS Murid',
+          'Nama Murid',
+          'Kelas',
+          'Kode Laptop',
+          'Petugas Ambil',
+          'Petugas Kembali',
+          'Status',
+        ];
+
+        const csvEscape = (val) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+        const rows = logs.map((l) =>
+          [
+            l.id,
+            l.dateKey,
+            l.waktuAmbil,
+            l.waktuKembali || '-',
+            l.nis,
+            l.nama,
+            l.kelas,
+            l.laptopCode,
+            l.petugasAmbil,
+            l.petugasKembali || '-',
+            l.status,
+          ]
+            .map(csvEscape)
+            .join(',')
+        );
+
+        // Tambahkan UTF-8 BOM (\uFEFF) agar Microsoft Excel membaca karakter rapi
+        const csvContent = '\uFEFF' + [headers.map(csvEscape).join(','), ...rows].join('\r\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `laporan-sirkulasi-laptop-${getTodayDateKey()}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        showToast('Laporan CSV berhasil diunduh.', 'success');
+      }
+
+      // =====================================================================
+      // HALAMAN 4: DATABASE MURID, KOMPRESI FOTO BASE64, BLOKIR & CETAK QR
+      // =====================================================================
+      function renderStudents() {
+        if (!hasPermission('canManageStudents')) return;
+
+        const students = getStudents();
+        const query = (document.getElementById('studentSearchInput').value || '').trim().toLowerCase();
+        const filtered = students.filter((s) => {
+          if (!query) return true;
+          return (
+            s.nama.toLowerCase().includes(query) ||
+            s.nis.toLowerCase().includes(query) ||
+            s.kelas.toLowerCase().includes(query) ||
+            s.laptopCode.toLowerCase().includes(query) ||
+            s.laptopBrand.toLowerCase().includes(query)
+          );
+        });
+
+        const tbody = document.getElementById('studentsTableBody');
+        if (filtered.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="6" class="py-10 px-4 text-center text-sm text-slate-500">
+                Belum ada data murid yang cocok. Klik "+ Tambah Murid &amp; Laptop" untuk menambahkan.
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
+        tbody.innerHTML = filtered
+          .map((s) => {
+            const photoSrc = s.foto || createDefaultAvatar(s.nama);
+            const blockCell = s.blocked
+              ? `<div class="text-xs font-semibold text-red-700">Diblokir</div>
+                 <p class="text-[11px] text-slate-600 max-w-[180px] truncate" title="${escapeHtml(s.blockReason)}">${escapeHtml(s.blockReason)}</p>`
+              : '<span class="text-xs font-medium text-emerald-700">Aktif</span>';
+
+            const blockActionBtn = s.blocked
+              ? `<button type="button" onclick="unblockStudent('${escapeHtml(s.nis)}')" class="px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md whitespace-nowrap">Buka Blokir</button>`
+              : `<button type="button" onclick="openBlockModal('${escapeHtml(s.nis)}')" class="px-2.5 py-1 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-md whitespace-nowrap">Blokir Murid</button>`;
+
+            return `
+              <tr class="hover:bg-slate-50/80 transition-colors">
+                <td class="py-3 px-4">
+                  <div class="flex items-center gap-3">
+                    <img src="${photoSrc}" alt="${escapeHtml(s.nama)}" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src=createDefaultAvatar(this.alt)" class="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0" />
+                    <span class="font-semibold text-slate-900">${escapeHtml(s.nama)}</span>
+                  </div>
+                </td>
+                <td class="py-3 px-4">
+                  <div class="font-mono text-xs text-slate-900 tabular-nums">${escapeHtml(s.nis)}</div>
+                  <div class="text-xs text-slate-500">${escapeHtml(s.kelas)}</div>
+                </td>
+                <td class="py-3 px-4">
+                  <div class="font-mono text-xs font-semibold text-slate-900 tabular-nums">${escapeHtml(s.laptopCode)}</div>
+                  <div class="text-xs text-slate-500">${escapeHtml(s.laptopBrand)}</div>
+                </td>
+                <td class="py-3 px-4">${blockCell}</td>
+                <td class="py-3 px-4">
+                  <div class="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onclick="openQrPrintModal('student', '${escapeHtml(s.nis)}')"
+                      class="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-md whitespace-nowrap"
+                    >
+                      Kartu Murid
+                    </button>
+                    <button
+                      type="button"
+                      onclick="openQrPrintModal('laptop', '${escapeHtml(s.nis)}')"
+                      class="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-md whitespace-nowrap"
+                    >
+                      Stiker Laptop
+                    </button>
+                  </div>
+                </td>
+                <td class="py-3 px-4 text-right">
+                  <div class="inline-flex items-center gap-1.5">
+                    ${blockActionBtn}
+                    <button
+                      type="button"
+                      onclick="openStudentModal('${escapeHtml(s.nis)}')"
+                      class="px-2.5 py-1 text-xs font-medium text-orange-700 hover:bg-orange-50 rounded-md"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onclick="deleteStudent('${escapeHtml(s.nis)}')"
+                      class="px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded-md"
+                    >
+                      Hapus
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            `;
+          })
+          .join('');
+      }
+
+      /**
+       * KOMPRESI FOTO BASE64 MENGGUNAKAN HTML5 <canvas>:
+       * Mengubah ukuran gambar yang diunggah menjadi maksimal 200x200 piksel
+       * (crop-to-square terpusat) lalu mengekspornya ke JPEG Base64 kualitas 0.72
+       * agar ukuran sangat kecil (~6–14 KB) dan tidak memenuhi kuota localStorage.
+       */
+      document.getElementById('studentPhotoInput').addEventListener('change', function (e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function (ev) {
+          const img = new Image();
+          img.onload = function () {
+            const MAX_SIZE = 200;
+            const canvas = document.createElement('canvas');
+            canvas.width = MAX_SIZE;
+            canvas.height = MAX_SIZE;
+            const ctx = canvas.getContext('2d');
+
+            // Crop persegi dari tengah agar proporsi wajah tetap rapi
+            const minSide = Math.min(img.width, img.height);
+            const sx = (img.width - minSide) / 2;
+            const sy = (img.height - minSide) / 2;
+
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, MAX_SIZE, MAX_SIZE);
+            ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, MAX_SIZE, MAX_SIZE);
+
+            // Hasil Base64 JPEG terkompresi
+            const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.72);
+            appState.uploadedPhotoBase64 = compressedDataUrl;
+
+            document.getElementById('studentPhotoUrlInput').value = '';
+            document.getElementById('studentPhotoPreview').src = compressedDataUrl;
+            const approxKb = Math.round((compressedDataUrl.length * 3) / 4 / 1024);
+            document.getElementById('photoCompressInfo').textContent =
+              `Terkompres 200x200 px JPEG (~${approxKb} KB)`;
+          };
+          img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+
+      // Handler input Copy/Tempel Link URL Foto Murid
+      document.getElementById('studentPhotoUrlInput').addEventListener('input', function (e) {
+        const url = e.target.value.trim();
+        const nama = document.getElementById('fieldNama').value || 'M';
+        if (url) {
+          document.getElementById('studentPhotoInput').value = '';
+          appState.uploadedPhotoBase64 = url;
+          document.getElementById('studentPhotoPreview').src = url;
+          document.getElementById('photoCompressInfo').textContent =
+            'Menggunakan link URL foto eksternal.';
+        } else {
+          appState.uploadedPhotoBase64 = '';
+          document.getElementById('studentPhotoPreview').src = createDefaultAvatar(nama);
+          document.getElementById('photoCompressInfo').textContent =
+            'Menggunakan avatar default jika belum diisi.';
+        }
+      });
+
+      function handlePhotoPreviewError(imgEl) {
+        const nama = document.getElementById('fieldNama')?.value || 'M';
+        const fallback = createDefaultAvatar(nama);
+        if (imgEl.src !== fallback) {
+          imgEl.src = fallback;
+          const infoEl = document.getElementById('photoCompressInfo');
+          if (infoEl && document.getElementById('studentPhotoUrlInput')?.value.trim()) {
+            infoEl.textContent = 'Link foto tidak dapat dimuat — menampilkan avatar default.';
+          }
+        }
+      }
+
+      function clearUploadedPhoto() {
+        appState.uploadedPhotoBase64 = '';
+        document.getElementById('studentPhotoInput').value = '';
+        document.getElementById('studentPhotoUrlInput').value = '';
+        const nama = document.getElementById('fieldNama').value || 'M';
+        document.getElementById('studentPhotoPreview').src = createDefaultAvatar(nama);
+        document.getElementById('photoCompressInfo').textContent =
+          'Menggunakan avatar default jika belum diisi.';
+      }
+
+      // =====================================================================
+      // DROPDOWN KELAS (TAMBAH / HAPUS) & KODE LAPTOP OTOMATIS (LPT-xxxxx)
+      // =====================================================================
+      function renderClassOptions(selectedClass = '') {
+        const select = document.getElementById('fieldKelas');
+        let classes = getClasses();
+
+        // Pastikan kelas milik murid yang sedang diedit tetap tersedia di opsi jika belum terdaftar
+        if (selectedClass && !classes.some((c) => c.toLowerCase() === selectedClass.toLowerCase())) {
+          classes = [...classes, selectedClass];
+        }
+
+        if (classes.length === 0) {
+          select.innerHTML = '<option value="">Belum ada kelas — klik + untuk menambah</option>';
+          return;
+        }
+
+        select.innerHTML = classes
+          .map((cls) => `<option value="${escapeHtml(cls)}">${escapeHtml(cls)}</option>`)
+          .join('');
+
+        if (selectedClass) {
+          const matched = classes.find((c) => c.toLowerCase() === selectedClass.toLowerCase());
+          if (matched) select.value = matched;
+        }
+      }
+
+      function toggleAddClassRow(show) {
+        const row = document.getElementById('addClassInlineRow');
+        const input = document.getElementById('newClassNameInput');
+        row.classList.toggle('hidden', !show);
+        if (show) {
+          input.value = '';
+          input.focus();
+        }
+      }
+
+      async function saveNewClass() {
+        const input = document.getElementById('newClassNameInput');
+        const name = input.value.trim();
+        if (!name) {
+          showToast('Masukkan nama kelas baru terlebih dahulu.', 'error');
+          input.focus();
+          return;
+        }
+
+        const classes = getClasses();
+        const existing = classes.find((c) => c.toLowerCase() === name.toLowerCase());
+        if (existing) {
+          renderClassOptions(existing);
+          toggleAddClassRow(false);
+          showToast(`Kelas "${existing}" sudah ada dan langsung dipilih.`, 'info');
+          return;
+        }
+
+        if (isCloudMode() && window.firebaseBackend) {
+          try {
+            await window.firebaseBackend.addClass(name);
+            renderClassOptions(name);
+            toggleAddClassRow(false);
+            showToast(`Kelas "${name}" ditambahkan ke Firestore.`, 'success');
+          } catch (err) {
+            showToast(`Gagal menambah kelas: ${parseBackendError(err)}`, 'error');
+          }
+          return;
+        }
+
+        classes.push(name);
+        classes.sort((a, b) => a.localeCompare(b, 'id'));
+        saveData(STORAGE_KEYS.CLASSES, classes);
+        renderClassOptions(name);
+        toggleAddClassRow(false);
+        showToast(`Kelas "${name}" ditambahkan.`, 'success');
+      }
+
+      async function deleteSelectedClass() {
+        const select = document.getElementById('fieldKelas');
+        const selected = select.value;
+        if (!selected) {
+          showToast('Tidak ada kelas terpilih untuk dihapus.', 'error');
+          return;
+        }
+
+        if (isCloudMode() && window.firebaseBackend) {
+          try {
+            await window.firebaseBackend.deleteClassByName(selected);
+            renderClassOptions();
+            showToast(`Kelas "${selected}" dihapus dari Firestore.`, 'info');
+          } catch (err) {
+            showToast(`Gagal menghapus kelas: ${parseBackendError(err)}`, 'error');
+          }
+          return;
+        }
+
+        const classes = getClasses().filter((c) => c !== selected);
+        saveData(STORAGE_KEYS.CLASSES, classes);
+        renderClassOptions();
+        showToast(`Kelas "${selected}" dihapus dari daftar.`, 'info');
+      }
+
+      document.getElementById('newClassNameInput').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          saveNewClass();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          toggleAddClassRow(false);
+        }
+      });
+
+      /**
+       * Membuat kode laptop otomatis berformat LPT-xxxxx (5 digit)
+       * dimulai dari nomor terkecil yang belum dipakai (misal LPT-00001).
+       */
+      function generateNextLaptopCode() {
+        const students = getStudents();
+        const usedNumbers = new Set();
+
+        students.forEach((s) => {
+          const match = String(s.laptopCode || '').trim().match(/^LPT-(\d+)$/i);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (num > 0) usedNumbers.add(num);
+          }
+        });
+
+        let candidate = 1;
+        while (usedNumbers.has(candidate)) {
+          candidate++;
+        }
+
+        return `LPT-${String(candidate).padStart(5, '0')}`;
+      }
+
+      function fillSmallestLaptopCode() {
+        document.getElementById('fieldLaptopCode').value = generateNextLaptopCode();
+      }
+
+      function openStudentModal(nisToEdit = null) {
+        if (!hasPermission('canManageStudents')) {
+          showToast('Hanya Admin yang dapat mengubah data murid.', 'error');
+          return;
+        }
+
+        const formErr = document.getElementById('studentFormError');
+        formErr.classList.add('hidden');
+        toggleAddClassRow(false);
+        document.getElementById('studentPhotoInput').value = '';
+
+        if (nisToEdit) {
+          const s = getStudents().find((item) => item.nis === nisToEdit);
+          if (!s) return;
+          document.getElementById('studentModalTitle').textContent = 'Edit Data Murid & Laptop';
+          document.getElementById('editStudentOriginalNis').value = s.nis;
+          document.getElementById('fieldNis').value = s.nis;
+          document.getElementById('fieldNama').value = s.nama;
+          renderClassOptions(s.kelas);
+          document.getElementById('fieldLaptopCode').value = s.laptopCode;
+          document.getElementById('fieldLaptopBrand').value = s.laptopBrand;
+
+          const existingFoto = s.foto || '';
+          const isExternalUrl = /^https?:\/\//i.test(existingFoto);
+          appState.uploadedPhotoBase64 = existingFoto;
+          document.getElementById('studentPhotoUrlInput').value = isExternalUrl ? existingFoto : '';
+          document.getElementById('studentPhotoPreview').src = existingFoto || createDefaultAvatar(s.nama);
+          document.getElementById('photoCompressInfo').textContent = isExternalUrl
+            ? 'Menggunakan link URL foto eksternal.'
+            : existingFoto
+            ? 'Foto tersimpan (200x200 px JPEG Base64)'
+            : 'Menggunakan avatar default jika belum diisi.';
+        } else {
+          document.getElementById('studentModalTitle').textContent = 'Tambah Murid & Laptop Baru';
+          document.getElementById('editStudentOriginalNis').value = '';
+          document.getElementById('studentForm').reset();
+          renderClassOptions();
+          document.getElementById('fieldLaptopCode').value = generateNextLaptopCode();
+          appState.uploadedPhotoBase64 = '';
+          document.getElementById('studentPhotoUrlInput').value = '';
+          document.getElementById('studentPhotoPreview').src = createDefaultAvatar('M');
+          document.getElementById('photoCompressInfo').textContent =
+            'Menggunakan avatar default jika belum diisi.';
+        }
+
+        document.getElementById('studentModal').classList.remove('hidden');
+      }
+
+      document.getElementById('studentForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        if (!hasPermission('canManageStudents')) return;
+
+        const originalNis = document.getElementById('editStudentOriginalNis').value.trim();
+        const nis = document.getElementById('fieldNis').value.trim();
+        const nama = document.getElementById('fieldNama').value.trim();
+        const kelas = document.getElementById('fieldKelas').value.trim();
+        const laptopCode = document.getElementById('fieldLaptopCode').value.trim();
+        const laptopBrand = document.getElementById('fieldLaptopBrand').value.trim();
+        const errEl = document.getElementById('studentFormError');
+        errEl.classList.add('hidden');
+
+        if (!/^[a-zA-Z0-9_\-]+$/.test(nis)) {
+          errEl.textContent = 'NIS / ID Murid hanya boleh berisi huruf, angka, tanda hubung (-), atau garis bawah (_) tanpa spasi.';
+          errEl.classList.remove('hidden');
+          return;
+        }
+        if (!/^[a-zA-Z0-9_\-]+$/.test(laptopCode)) {
+          errEl.textContent = 'Kode Laptop hanya boleh berisi huruf, angka, tanda hubung (-), atau garis bawah (_) tanpa spasi.';
+          errEl.classList.remove('hidden');
+          return;
+        }
+
+        const students = getStudents();
+
+        // Validasi keunikan NIS dan Kode Laptop (relasi 1-on-1 ketat)
+        const dupNis = students.find(
+          (s) => s.nis.toLowerCase() === nis.toLowerCase() && s.nis !== originalNis
+        );
+        if (dupNis) {
+          errEl.textContent = `NIS "${nis}" sudah digunakan oleh ${dupNis.nama}.`;
+          errEl.classList.remove('hidden');
+          return;
+        }
+
+        const dupLaptop = students.find(
+          (s) => s.laptopCode.toLowerCase() === laptopCode.toLowerCase() && s.nis !== originalNis
+        );
+        if (dupLaptop) {
+          errEl.textContent = `Kode Laptop "${laptopCode}" sudah ditautkan ke ${dupLaptop.nama}.`;
+          errEl.classList.remove('hidden');
+          return;
+        }
+
+        if (isCloudMode() && window.firebaseBackend) {
+          try {
+            await window.firebaseBackend.upsertStudent(
+              {
+                nis,
+                nama,
+                kelas,
+                foto: appState.uploadedPhotoBase64,
+                laptopCode,
+                laptopBrand,
+                lastActivityAt: formatNowTimestamp(),
+                lastHandledBy: appState.currentUser.fullName,
+              },
+              originalNis
+            );
+            closeModal('studentModal');
+            showToast(originalNis ? 'Data murid diperbarui di Firestore.' : 'Murid & laptop baru disimpan ke Firestore.', 'success');
+          } catch (err) {
+            errEl.textContent = parseBackendError(err);
+            errEl.classList.remove('hidden');
+          }
+          return;
+        }
+
+        const localStudents = [...students];
+        if (originalNis) {
+          const idx = localStudents.findIndex((s) => s.nis === originalNis);
+          if (idx !== -1) {
+            localStudents[idx] = {
+              ...localStudents[idx],
+              nis,
+              nama,
+              kelas,
+              laptopCode,
+              laptopBrand,
+              foto: appState.uploadedPhotoBase64,
+            };
+          }
+        } else {
+          localStudents.push({
+            nis,
+            nama,
+            kelas,
+            foto: appState.uploadedPhotoBase64,
+            laptopCode,
+            laptopBrand,
+            laptopStatus: 'tersedia',
+            blocked: false,
+            blockReason: '',
+            lastActivityAt: formatNowTimestamp(),
+            lastHandledBy: appState.currentUser.fullName,
+          });
+        }
+
+        if (saveData(STORAGE_KEYS.STUDENTS, localStudents)) {
+          closeModal('studentModal');
+          renderStudents();
+          showToast(originalNis ? 'Data murid diperbarui.' : 'Murid & laptop baru ditambahkan.', 'success');
+        }
+      });
+
+      function deleteStudent(nis) {
+        if (!hasPermission('canManageStudents')) return;
+        const students = getStudents();
+        const target = students.find((s) => s.nis === nis);
+        if (!target) return;
+
+        confirmAction(
+          'Hapus Data Murid?',
+          `Data murid "${target.nama}" dan tautan laptop ${target.laptopCode} akan dihapus permanen.`,
+          async () => {
+            if (isCloudMode() && window.firebaseBackend) {
+              try {
+                await window.firebaseBackend.deleteStudent(nis);
+                showToast('Data murid dihapus dari Firestore.', 'success');
+              } catch (err) {
+                showToast(`Gagal menghapus murid: ${parseBackendError(err)}`, 'error');
+              }
+              return;
+            }
+            const updated = students.filter((s) => s.nis !== nis);
+            saveData(STORAGE_KEYS.STUDENTS, updated);
+            renderStudents();
+            showToast('Data murid dihapus.', 'success');
+          }
+        );
+      }
+
+      // Fitur Blokir & Buka Blokir Murid (Admin Only)
+      function openBlockModal(nis) {
+        if (!hasPermission('canBlockStudents')) {
+          showToast('Hanya Admin yang dapat memblokir murid.', 'error');
+          return;
+        }
+        const s = getStudents().find((item) => item.nis === nis);
+        if (!s) return;
+
+        document.getElementById('blockTargetNis').value = s.nis;
+        document.getElementById('blockTargetPhoto').src = s.foto || createDefaultAvatar(s.nama);
+        document.getElementById('blockTargetName').textContent = s.nama;
+        document.getElementById('blockTargetMeta').textContent = `${s.nis} · ${s.kelas} · ${s.laptopCode}`;
+        document.getElementById('blockReasonInput').value = s.blockReason || '';
+        document.getElementById('blockModal').classList.remove('hidden');
+      }
+
+      function setQuickBlockReason(reason) {
+        document.getElementById('blockReasonInput').value = reason;
+      }
+
+      document.getElementById('blockForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        if (!hasPermission('canBlockStudents')) return;
+
+        const nis = document.getElementById('blockTargetNis').value;
+        const reason = document.getElementById('blockReasonInput').value.trim();
+        if (!reason) return;
+
+        const timestamp = formatNowTimestamp();
+        const handlerName = appState.currentUser.fullName;
+
+        if (isCloudMode() && window.firebaseBackend) {
+          try {
+            await window.firebaseBackend.blockStudent(nis, reason, timestamp, handlerName);
+            closeModal('blockModal');
+            showToast('Murid telah diblokir dari pengambilan laptop.', 'error');
+          } catch (err) {
+            showToast(`Gagal memblokir murid: ${parseBackendError(err)}`, 'error');
+          }
+          return;
+        }
+
+        const students = getStudents();
+        const idx = students.findIndex((s) => s.nis === nis);
+        if (idx !== -1) {
+          students[idx].blocked = true;
+          students[idx].blockReason = reason;
+          students[idx].lastActivityAt = timestamp;
+          students[idx].lastHandledBy = handlerName;
+          saveData(STORAGE_KEYS.STUDENTS, students);
+        }
+
+        closeModal('blockModal');
+        renderStudents();
+        renderDashboard();
+        showToast('Murid telah diblokir dari pengambilan laptop.', 'error');
+      });
+
+      async function unblockStudent(nis) {
+        if (!hasPermission('canBlockStudents')) {
+          showToast('Hanya Admin yang dapat membuka blokir murid.', 'error');
+          return;
+        }
+        const timestamp = formatNowTimestamp();
+        const handlerName = appState.currentUser.fullName;
+
+        if (isCloudMode() && window.firebaseBackend) {
+          try {
+            await window.firebaseBackend.unblockStudent(nis, timestamp, handlerName);
+            showToast('Status suspend murid telah dibuka.', 'success');
+          } catch (err) {
+            showToast(`Gagal membuka suspend: ${parseBackendError(err)}`, 'error');
+          }
+          return;
+        }
+
+        const students = getStudents();
+        const idx = students.findIndex((s) => s.nis === nis);
+        if (idx !== -1) {
+          students[idx].blocked = false;
+          students[idx].blockReason = '';
+          students[idx].lastActivityAt = timestamp;
+          students[idx].lastHandledBy = handlerName;
+          saveData(STORAGE_KEYS.STUDENTS, students);
+          renderStudents();
+          renderDashboard();
+          showToast(`Status suspend untuk ${students[idx].nama} telah dibuka.`, 'success');
+        }
+      }
+
+      // =====================================================================
+      // CETAK KARTU QR MURID & STIKER QR LAPTOP (qrcode.js)
+      // =====================================================================
+      function openQrPrintModal(mode, nis) {
+        const s = getStudents().find((item) => item.nis === nis);
+        if (!s) return;
+
+        const printContainer = document.getElementById('printContainer');
+        const titleEl = document.getElementById('qrPrintModalTitle');
+
+        if (mode === 'student') {
+          titleEl.textContent = `Kartu ID QR Murid — ${s.nama}`;
+          appState.qrPrintMeta.filename = `kartu-murid-${s.nis}.png`;
+          const photoSrc = s.foto || createDefaultAvatar(s.nama);
+
+          printContainer.innerHTML = `
+            <div class="w-[340px] border-2 border-slate-900 rounded-xl overflow-hidden bg-white text-slate-900">
+              <div class="bg-slate-900 border-b-2 border-orange-500 text-white px-4 py-2.5 flex items-center justify-between">
+                <span class="text-xs font-bold tracking-wide">KARTU SIRKULASI LAPTOP</span>
+                <span class="text-[11px] font-mono text-orange-300">ID MURID</span>
+              </div>
+              <div class="p-4 flex items-center gap-3.5">
+                <img src="${photoSrc}" alt="${escapeHtml(s.nama)}" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src=createDefaultAvatar(this.alt)" class="w-20 h-20 rounded-lg object-cover border border-slate-300 shrink-0" />
+                <div class="min-w-0">
+                  <p class="text-sm font-bold text-slate-900 leading-snug">${escapeHtml(s.nama)}</p>
+                  <p class="text-xs font-mono text-slate-600 mt-0.5">${escapeHtml(s.nis)}</p>
+                  <p class="text-xs text-slate-600">${escapeHtml(s.kelas)}</p>
+                  <p class="text-[11px] font-mono font-semibold text-orange-700 mt-1">Unit: ${escapeHtml(s.laptopCode)}</p>
+                </div>
+              </div>
+              <div class="px-4 pb-4 pt-2 border-t border-slate-200 flex items-center justify-between gap-3">
+                <div class="text-[11px] text-slate-500 leading-relaxed">
+                  Tunjukkan kartu ini kepada Petugas Piket pada Langkah 1 pemindaian.
+                </div>
+                <div id="qrCanvasSlot" class="p-1.5 bg-white border border-slate-200 rounded-lg shrink-0"></div>
+              </div>
+            </div>
+          `;
+          generateQrIntoSlot('qrCanvasSlot', s.nis, 92);
+        } else {
+          titleEl.textContent = `Stiker QR Unit Laptop — ${s.laptopCode}`;
+          appState.qrPrintMeta.filename = `stiker-laptop-${s.laptopCode}.png`;
+
+          printContainer.innerHTML = `
+            <div class="w-[320px] border-2 border-slate-900 rounded-xl p-4 bg-white text-slate-900 flex items-center gap-4">
+              <div id="qrCanvasSlot" class="p-1.5 bg-white border border-slate-200 rounded-lg shrink-0"></div>
+              <div class="min-w-0 flex-1 space-y-1">
+                <p class="text-[10px] font-mono font-bold text-slate-500">ASET LAPTOP MURID</p>
+                <p class="text-lg font-mono font-bold text-slate-900 leading-none">${escapeHtml(s.laptopCode)}</p>
+                <p class="text-xs text-slate-700 truncate">${escapeHtml(s.laptopBrand)}</p>
+                <div class="pt-1.5 border-t border-slate-200">
+                  <p class="text-[11px] text-slate-500">Pemilik Resmi:</p>
+                  <p class="text-xs font-bold text-slate-900 truncate">${escapeHtml(s.nama)}</p>
+                  <p class="text-[11px] font-mono text-slate-600">${escapeHtml(s.kelas)} · ${escapeHtml(s.nis)}</p>
+                </div>
+              </div>
+            </div>
+          `;
+          generateQrIntoSlot('qrCanvasSlot', s.laptopCode, 96);
+        }
+
+        document.getElementById('qrPrintModal').classList.remove('hidden');
+      }
+
+      function generateQrIntoSlot(slotId, payloadText, sizePx) {
+        const slot = document.getElementById(slotId);
+        if (!slot) return;
+        slot.innerHTML = '';
+
+        if (typeof QRCode === 'undefined') {
+          slot.innerHTML = `<span class="text-[10px] font-mono text-red-600">QR CDN offline</span>`;
+          return;
+        }
+
+        new QRCode(slot, {
+          text: payloadText,
+          width: sizePx,
+          height: sizePx,
+          colorDark: '#0f172a',
+          colorLight: '#ffffff',
+          correctLevel: QRCode.CorrectLevel.M,
+        });
+      }
+
+      function downloadQrImage() {
+        const slot = document.getElementById('qrCanvasSlot');
+        if (!slot) return;
+        const canvas = slot.querySelector('canvas');
+        const img = slot.querySelector('img');
+        let dataUrl = '';
+
+        if (canvas) {
+          dataUrl = canvas.toDataURL('image/png');
+        } else if (img && img.src) {
+          dataUrl = img.src;
+        }
+
+        if (!dataUrl) {
+          showToast('Gambar QR belum siap diunduh.', 'error');
+          return;
+        }
+
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = appState.qrPrintMeta.filename || 'qr-code.png';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+
+      // =====================================================================
+      // HALAMAN 5: MANAJEMEN AKUN PENGGUNA & DATA DUMMY (KHUSUS ADMIN)
+      // =====================================================================
+      function renderUsers() {
+        if (!hasPermission('canManageUsers')) return;
+
+        const cloud = isCloudMode();
+        const users = getUsers();
+        const tbody = document.getElementById('usersTableBody');
+
+        document.getElementById('usersSubtitle').textContent = cloud
+          ? 'Atur daftar email Google staf & peran akses yang tersinkron di Cloud Firestore'
+          : 'Atur akses Admin dan Petugas Piket yang tersimpan di localStorage';
+        document.getElementById('usersIdentifierHeader').textContent = cloud
+          ? 'Email Google'
+          : 'Username';
+
+        if (users.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="4" class="py-8 px-4 text-center text-xs text-slate-500">
+                Belum ada daftar email staf tambahan. Klik "+ Tambah Akun" untuk mendaftarkan email Google staf.
+              </td>
+            </tr>
+          `;
+        } else {
+          tbody.innerHTML = users
+            .map((u) => {
+              const identifier = cloud ? u.email : u.username;
+              const isSelf =
+                appState.currentUser &&
+                (u.id === appState.currentUser.id ||
+                  (cloud && u.email?.toLowerCase() === appState.currentUser.email?.toLowerCase()));
+              const roleText =
+                u.role === 'admin'
+                  ? '<span class="text-xs font-semibold text-orange-700">Administrator</span>'
+                  : '<span class="text-xs font-semibold text-slate-700">Petugas Piket</span>';
+
+              return `
+                <tr class="hover:bg-slate-50/80">
+                  <td class="py-3 px-4 font-semibold text-slate-900">
+                    ${escapeHtml(u.fullName)}
+                    ${isSelf ? '<span class="text-xs font-normal text-slate-500">(Sedang Aktif)</span>' : ''}
+                  </td>
+                  <td class="py-3 px-4 font-mono text-xs text-slate-700">${escapeHtml(identifier || '-')}</td>
+                  <td class="py-3 px-4">${roleText}</td>
+                  <td class="py-3 px-4 text-right">
+                    ${
+                      isSelf
+                        ? '<span class="text-xs text-slate-400">Aktif</span>'
+                        : `<button type="button" onclick="deleteUser('${escapeHtml(u.id)}')" class="text-xs font-medium text-red-600 hover:underline">Hapus</button>`
+                    }
+                  </td>
+                </tr>
+              `;
+            })
+            .join('');
+        }
+
+        if (cloud) {
+          document.getElementById('storageSummaryLabel').textContent = 'Ringkasan Cloud Firestore:';
+          document.getElementById('storageUsageInfo').textContent =
+            `${getStudents().length} murid · ${getClasses().length} kelas · ${getLogs().length} riwayat`;
+        } else {
+          const totalBytes = Object.values(STORAGE_KEYS).reduce((acc, key) => {
+            const v = localStorage.getItem(key) || '';
+            return acc + v.length;
+          }, 0);
+          const kb = (totalBytes / 1024).toFixed(1);
+          document.getElementById('storageSummaryLabel').textContent = 'Ringkasan Memori Lokal:';
+          document.getElementById('storageUsageInfo').textContent =
+            `${getStudents().length} murid · ${getLogs().length} riwayat · ${kb} KB terpakai`;
+        }
+      }
+
+      function openUserModal() {
+        if (!hasPermission('canManageUsers')) return;
+        const cloud = isCloudMode();
+        document.getElementById('userForm').reset();
+        document.getElementById('userFormError').classList.add('hidden');
+
+        document.getElementById('userModalTitle').textContent = cloud
+          ? 'Daftarkan Email Google Staf'
+          : 'Tambah Akun Pengguna';
+        document.getElementById('userUsernameLabel').textContent = cloud
+          ? 'Alamat Email Google'
+          : 'Username Login';
+        const identInput = document.getElementById('userUsername');
+        identInput.type = cloud ? 'email' : 'text';
+        identInput.placeholder = cloud ? 'nama@gmail.com' : 'Misal: piket2';
+
+        const pwdGroup = document.getElementById('userPasswordGroup');
+        const pwdInput = document.getElementById('userPassword');
+        pwdGroup.classList.toggle('hidden', cloud);
+        pwdInput.required = !cloud;
+
+        document.getElementById('userModal').classList.remove('hidden');
+      }
+
+      document.getElementById('userForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        if (!hasPermission('canManageUsers')) return;
+
+        const fullName = document.getElementById('userFullName').value.trim();
+        const identifier = document.getElementById('userUsername').value.trim();
+        const password = document.getElementById('userPassword').value;
+        const role = document.getElementById('userRole').value === 'admin' ? 'admin' : 'piket';
+        const errEl = document.getElementById('userFormError');
+        errEl.classList.add('hidden');
+
+        if (isCloudMode() && window.firebaseBackend) {
+          try {
+            await window.firebaseBackend.upsertStaffRole(identifier, fullName, role);
+            closeModal('userModal');
+            showToast(`Email ${identifier} disimpan ke Firestore.`, 'success');
+          } catch (err) {
+            errEl.textContent = parseBackendError(err);
+            errEl.classList.remove('hidden');
+          }
+          return;
+        }
+
+        const users = getUsers();
+        if (users.some((u) => u.username.toLowerCase() === identifier.toLowerCase())) {
+          errEl.textContent = `Username "${identifier}" sudah digunakan.`;
+          errEl.classList.remove('hidden');
+          return;
+        }
+
+        users.push({
+          id: 'usr-' + Date.now(),
+          username: identifier,
+          password,
+          fullName,
+          role,
+        });
+
+        saveData(STORAGE_KEYS.USERS, users);
+        closeModal('userModal');
+        renderUsers();
+        showToast(`Akun ${identifier} berhasil ditambahkan.`, 'success');
+      });
+
+      function deleteUser(userId) {
+        if (!hasPermission('canManageUsers')) return;
+        const users = getUsers();
+        const target = users.find((u) => u.id === userId);
+        if (!target) return;
+        if (appState.currentUser && target.id === appState.currentUser.id) {
+          showToast('Tidak dapat menghapus akun yang sedang digunakan.', 'error');
+          return;
+        }
+
+        const label = isCloudMode() ? target.email : target.username;
+        confirmAction('Hapus Akun Pengguna?', `Akun "${label}" akan dihapus permanen.`, async () => {
+          if (isCloudMode() && window.firebaseBackend) {
+            try {
+              await window.firebaseBackend.deleteStaffRole(userId);
+              showToast('Otorisasi email staf dihapus dari Firestore.', 'success');
+            } catch (err) {
+              showToast(`Gagal menghapus staf: ${parseBackendError(err)}`, 'error');
+            }
+            return;
+          }
+          saveData(
+            STORAGE_KEYS.USERS,
+            users.filter((u) => u.id !== userId)
+          );
+          renderUsers();
+          showToast('Akun pengguna dihapus.', 'success');
+        });
+      }
+
+      async function resetWithDummyData() {
+        if (!hasPermission('canManageUsers')) return;
+        if (isCloudMode() && window.firebaseBackend) {
+          try {
+            await window.firebaseBackend.seedDummyData(
+              getDefaultClasses(),
+              getDefaultStudents(),
+              getDefaultLogs()
+            );
+            showToast('Data murid, kelas, laptop, dan riwayat dummy disimpan ke Firestore.', 'success');
+          } catch (err) {
+            showToast(`Gagal mengisi data dummy ke Firestore: ${parseBackendError(err)}`, 'error');
+          }
+          return;
+        }
+        saveData(STORAGE_KEYS.CLASSES, getDefaultClasses());
+        saveData(STORAGE_KEYS.STUDENTS, getDefaultStudents());
+        saveData(STORAGE_KEYS.LOGS, getDefaultLogs());
+        renderUsers();
+        showToast('Data murid, laptop, dan riwayat berhasil direset ke contoh bawaan.', 'success');
+      }
+
+      async function clearAllLogs() {
+        if (!hasPermission('canDeleteLogs')) return;
+        if (isCloudMode() && window.firebaseBackend) {
+          try {
+            await window.firebaseBackend.clearAllLogs();
+            showToast('Seluruh riwayat sirkulasi di Firestore telah dikosongkan.', 'success');
+          } catch (err) {
+            showToast(`Gagal mengosongkan riwayat: ${parseBackendError(err)}`, 'error');
+          }
+          return;
+        }
+        saveData(STORAGE_KEYS.LOGS, []);
+        renderUsers();
+        showToast('Seluruh riwayat sirkulasi telah dikosongkan.', 'success');
+      }
+
+      // =====================================================================
+      // UTILITAS MODAL KONFIRMASI & TOAST
+      // =====================================================================
+      function closeModal(modalId) {
+        document.getElementById(modalId).classList.add('hidden');
+      }
+
+      function confirmAction(title, message, onConfirm) {
+        document.getElementById('confirmModalTitle').textContent = title;
+        document.getElementById('confirmModalMessage').textContent = message;
+        pendingConfirmCallback = onConfirm;
+        document.getElementById('confirmModal').classList.remove('hidden');
+      }
+
+      document.getElementById('confirmModalProceedBtn').addEventListener('click', function () {
+        closeModal('confirmModal');
+        if (typeof pendingConfirmCallback === 'function') {
+          const cb = pendingConfirmCallback;
+          pendingConfirmCallback = null;
+          cb();
+        }
+      });
+
+      function showToast(message, type = 'info') {
+        const container = document.getElementById('toastContainer');
+        const el = document.createElement('div');
+        const colors =
+          type === 'error'
+            ? 'bg-red-700 text-white border-red-800'
+            : type === 'success'
+            ? 'bg-emerald-700 text-white border-emerald-800'
+            : 'bg-slate-900 text-white border-slate-800';
+
+        el.className = `pointer-events-auto px-4 py-3 rounded-lg border text-xs font-semibold shadow-md transition-opacity duration-200 ${colors}`;
+        el.textContent = message;
+        container.appendChild(el);
+
+        setTimeout(() => {
+          el.style.opacity = '0';
+          setTimeout(() => el.remove(), 220);
+        }, 3200);
+      }
+
+      // =====================================================================
+      // JAM REAL-TIME & INISIALISASI APLIKASI + LISTENER FIREBASE
+      // =====================================================================
+      function startClock() {
+        const update = () => {
+          const d = new Date();
+          const pad = (n) => String(n).padStart(2, '0');
+          const el = document.getElementById('topbarClock');
+          if (el) {
+            el.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+          }
+        };
+        update();
+        setInterval(update, 1000);
+      }
+
+      function refreshActiveViewFromCloud() {
+        if (!appState.currentUser) return;
+        if (appState.currentView === 'dashboard') renderDashboard();
+        if (appState.currentView === 'scan') renderScanView();
+        if (appState.currentView === 'history') renderHistory();
+        if (appState.currentView === 'students') renderStudents();
+        if (appState.currentView === 'users') renderUsers();
+
+        // Segarkan opsi dropdown kelas jika modal murid sedang terbuka
+        const studentModal = document.getElementById('studentModal');
+        if (studentModal && !studentModal.classList.contains('hidden')) {
+          const currentSelected = document.getElementById('fieldKelas').value;
+          renderClassOptions(currentSelected);
+        }
+      }
+
+      function initFirebaseBridge() {
+        if (!window.firebaseBackend) return;
+
+        window.firebaseBackend.onAuthChange((cloudUser) => {
+          if (cloudUser) {
+            if (!appState.currentUser || appState.authMode !== 'cloud' || appState.currentUser.uid !== cloudUser.uid) {
+              setActiveSession(cloudUser, 'cloud');
+            }
+          } else if (appState.authMode === 'cloud' && appState.currentUser) {
+            logoutUser();
+          }
+        });
+
+        window.firebaseBackend.onDataChange(async () => {
+          // Auto-seed daftar kelas default jika Firestore masih kosong saat Admin masuk pertama kali
+          if (
+            isCloudMode() &&
+            isAdmin() &&
+            !appState.hasAutoSeededClasses &&
+            window.firebaseBackend.isClassesLoaded() &&
+            window.firebaseBackend.getClasses().length === 0
+          ) {
+            appState.hasAutoSeededClasses = true;
+            try {
+              for (const cls of getDefaultClasses()) {
+                await window.firebaseBackend.addClass(cls);
+              }
+            } catch {
+              // Abaikan jika gagal
+            }
+          }
+          refreshActiveViewFromCloud();
+        });
+      }
+
+      window.addEventListener('DOMContentLoaded', function () {
+        initStorage();
+        startClock();
+        initFirebaseBridge();
+
+        // Pulihkan sesi login lokal jika pengguna me-refresh browser (selama bukan login cloud)
+        const savedSessionRaw = localStorage.getItem(STORAGE_KEYS.SESSION);
+        if (savedSessionRaw && !window.firebaseBackend?.getCurrentUser()) {
+          try {
+            const parsed = JSON.parse(savedSessionRaw);
+            const stillExists = loadData(STORAGE_KEYS.USERS, []).find((u) => u.id === parsed.id);
+            if (stillExists) {
+              setActiveSession(stillExists, 'local');
+              return;
+            }
+          } catch {
+            localStorage.removeItem(STORAGE_KEYS.SESSION);
+          }
+        }
+      });
+    </script>
+    <script type="module" src="/src/firebaseService.ts"></script>
+  </body>
+</html>

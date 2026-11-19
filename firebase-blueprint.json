@@ -1,0 +1,328 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Profil akun pengguna terautentikasi dan perannya (admin atau piket) tanpa menyimpan PII email.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "piket"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "fullName", "role", "createdAt", "updatedAt"]
+    },
+    "AdminMarker": {
+      "title": "AdminMarker",
+      "description": "Penanda otoritas Administrator berbasis UID untuk evaluasi rule isAdmin().",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "grantedByUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "grantedByUid", "createdAt"]
+    },
+    "StaffRole": {
+      "title": "StaffRole",
+      "description": "Daftar otorisasi email Google staf sekolah beserta perannya yang dikelola Admin.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "piket"]
+        },
+        "assignedByUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["email", "fullName", "role", "assignedByUid", "createdAt", "updatedAt"]
+    },
+    "SchoolClass": {
+      "title": "SchoolClass",
+      "description": "Daftar kelas aktif yang tersedia pada dropdown data murid.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "schoolCode": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "createdByUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["name", "schoolCode", "createdByUid", "createdAt"]
+    },
+    "StudentLaptop": {
+      "title": "StudentLaptop",
+      "description": "Relasi 1-on-1 antara data murid, foto, unit laptop, dan status suspend/blokir.",
+      "type": "object",
+      "properties": {
+        "nis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "nama": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "kelas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "foto": {
+          "type": "string",
+          "maxLength": 100000
+        },
+        "laptopCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "laptopBrand": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "laptopStatus": {
+          "type": "string",
+          "enum": ["tersedia", "dibawa"]
+        },
+        "blocked": {
+          "type": "boolean"
+        },
+        "blockReason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "lastActivityAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "lastHandledBy": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "schoolCode": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "updatedByUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "nis",
+        "nama",
+        "kelas",
+        "foto",
+        "laptopCode",
+        "laptopBrand",
+        "laptopStatus",
+        "blocked",
+        "blockReason",
+        "lastActivityAt",
+        "lastHandledBy",
+        "schoolCode",
+        "updatedByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CirculationLog": {
+      "title": "CirculationLog",
+      "description": "Log transaksi pengambilan dan pengembalian laptop murid beserta petugas piket yang melayani.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "dateKey": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 20
+        },
+        "nis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "nama": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "kelas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "laptopCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "waktuAmbil": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "waktuKembali": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "petugasAmbil": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "petugasKembali": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Dibawa Murid", "Selesai Kembali"]
+        },
+        "schoolCode": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "handledByUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "dateKey",
+        "nis",
+        "nama",
+        "kelas",
+        "laptopCode",
+        "waktuAmbil",
+        "waktuKembali",
+        "petugasAmbil",
+        "petugasKembali",
+        "status",
+        "schoolCode",
+        "handledByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Profil pengguna terautentikasi beserta perannya (admin/piket)."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminMarker" },
+      "description": "Dokumen penanda hak Administrator."
+    },
+    "/staff_roles/{roleId}": {
+      "schema": { "$ref": "#/entities/StaffRole" },
+      "description": "Pemetaan email staf ke peran admin/piket."
+    },
+    "/classes/{classId}": {
+      "schema": { "$ref": "#/entities/SchoolClass" },
+      "description": "Daftar kelas yang dikelola oleh Admin."
+    },
+    "/students/{studentId}": {
+      "schema": { "$ref": "#/entities/StudentLaptop" },
+      "description": "Database 1-on-1 murid, foto, laptop, dan status suspend."
+    },
+    "/circulation_logs/{logId}": {
+      "schema": { "$ref": "#/entities/CirculationLog" },
+      "description": "Riwayat pengambilan dan pengembalian unit laptop murid."
+    }
+  }
+}

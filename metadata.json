@@ -1,0 +1,6 @@
+{
+  "name": "Sistem Sirkulasi Laptop Murid QR",
+  "description": "Sistem Sirkulasi Pengambilan dan Pengembalian Laptop Murid Berbasis QR Code dengan Role-Based Access Control (Admin & Petugas Piket).",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
