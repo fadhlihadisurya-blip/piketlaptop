@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.vercel.piketlaptop.twa",
+      "sha256_cert_fingerprints": [
+        "E3:31:FF:7A:A6:93:AB:58:CF:12:94:4B:AE:8A:A0:66:B2:47:87:FA:61:83:1C:EE:D6:17:68:5B:EE:79:92:69"
+      ]
+    }
+  }
+]
