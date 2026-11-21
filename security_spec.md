@@ -2,8 +2,8 @@
 
 ## 1. Data Invariants
 1. **Default-Deny Baseline**: Seluruh operasi baca/tulis pada jalur tak dikenal ditolak (`allow read, write: if false`).
-2. **Verified Auth Required**: Semua akses data mewajibkan `request.auth != null && request.auth.token.email_verified == true`.
-3. **Anti Privilege Escalation**: Pengguna non-admin hanya dapat mendaftarkan profil `/users/{uid}` dengan `role == 'piket'` dan tidak dapat mengubah `role` miliknya sendiri atau menulis ke `/admins/{uid}` atau `/staff_roles/{roleId}`.
+2. **Strict Auth & Superadmin Email Verification**: Superadmin wajib terverifikasi (`request.auth.token.email_verified == true`), sedangkan akun staf (`username` + `password`) hanya diakui jika dokumen `/users/{uid}` dibuat oleh Admin (`isAdmin()`). Pendaftaran mandiri di `/users/{uid}` oleh non-admin ditolak.
+3. **Anti Privilege Escalation**: Non-admin tidak dapat membuat `/users/{uid}`, tidak dapat mengubah `role` miliknya sendiri, dan tidak dapat menulis ke `/admins/{uid}` atau `/staff_roles/{roleId}`.
 4. **Tiered Circulation Update**: Petugas Piket hanya diizinkan memperbarui field sirkulasi (`laptopStatus`, `lastActivityAt`, `lastHandledBy`, `updatedByUid`, `updatedAt`) pada murid yang **tidak** berstatus `blocked == true`, serta tidak dapat mengubah `blocked`, `blockReason`, `nis`, `nama`, `kelas`, `laptopCode`, atau `foto`.
 5. **Terminal State Locking**: Log sirkulasi dengan `status == 'Selesai Kembali'` tidak dapat diubah lagi oleh Petugas Piket (hanya Admin yang memiliki hak koreksi/hapus).
 6. **PII Isolation**: Alamat email staf pada `/staff_roles/{roleId}` hanya dapat dibaca oleh Admin atau pemilik email itu sendiri (`resource.data.email == request.auth.token.email`).

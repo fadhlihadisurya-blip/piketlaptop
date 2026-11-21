@@ -30,13 +30,18 @@ service cloud.firestore {
     }
 
     function isBootstrapAdmin() {
-      return isVerifiedUser() && request.auth.token.email.lower() == 'fadhlihadisurya@gmail.com';
+      return isVerifiedUser() && request.auth.token.email.lower() in [
+        'fadhlihadisurya@gmail.com',
+        'f4dly.ank2@gmail.com'
+      ];
     }
 
     function isAdmin() {
-      return isBootstrapAdmin() || (
-        isVerifiedUser() &&
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      return isVerifiedUser() && (
+        request.auth.token.email.lower() in ['fadhlihadisurya@gmail.com', 'f4dly.ank2@gmail.com']
+        || request.auth.token.firebase.sign_in_provider == 'password'
+        || exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
       );
     }
 
@@ -46,6 +51,25 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['piket', 'admin']
       );
+    }
+
+    function isLocalStaff(actorUid) {
+      return isValidId(actorUid)
+        && exists(/databases/$(database)/documents/staff_roles/$(actorUid))
+        && get(/databases/$(database)/documents/staff_roles/$(actorUid)).data.role in ['admin', 'piket'];
+    }
+
+    function isLocalAdmin(actorUid) {
+      return isValidId(actorUid)
+        && exists(/databases/$(database)/documents/staff_roles/$(actorUid))
+        && get(/databases/$(database)/documents/staff_roles/$(actorUid)).data.role == 'admin';
+    }
+
+    function hasAdminStaffRole() {
+      return isVerifiedUser()
+        && exists(/databases/$(database)/documents/staff_roles/$('role-' + hashing.sha256(request.auth.token.email.lower()).toHexString().lower()))
+        && get(/databases/$(database)/documents/staff_roles/$('role-' + hashing.sha256(request.auth.token.email.lower()).toHexString().lower())).data.email.lower() == request.auth.token.email.lower()
+        && get(/databases/$(database)/documents/staff_roles/$('role-' + hashing.sha256(request.auth.token.email.lower()).toHexString().lower())).data.role == 'admin';
     }
 
     // =========================================================================
@@ -71,10 +95,12 @@ service cloud.firestore {
 
     function isValidStaffRole(data) {
       return data.keys().hasAll(['email', 'fullName', 'role', 'assignedByUid', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['email', 'fullName', 'role', 'assignedByUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['username', 'email', 'fullName', 'role', 'password', 'assignedByUid', 'createdAt', 'updatedAt'])
+        && (!data.keys().hasAll(['username']) || (data.username is string && data.username.size() >= 1 && data.username.size() <= 80))
         && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
         && data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120
         && data.role is string && data.role in ['admin', 'piket']
+        && (!data.keys().hasAll(['password']) || (data.password is string && data.password.size() <= 100))
         && data.assignedByUid is string && isValidId(data.assignedByUid)
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
@@ -160,6 +186,7 @@ service cloud.firestore {
         && (
           isAdmin()
           || (request.auth.uid == userId && incoming().role == 'piket')
+          || (request.auth.uid == userId && incoming().role == 'admin' && (hasAdminStaffRole() || request.auth.token.firebase.sign_in_provider == 'password'))
         );
 
       allow update: if isValidId(userId)
@@ -170,6 +197,12 @@ service cloud.firestore {
         && incoming().updatedAt == request.time
         && (
           isAdmin()
+          || (
+            request.auth.uid == userId
+            && incoming().role == 'admin'
+            && hasAdminStaffRole()
+            && incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'role', 'updatedAt'])
+          )
           || (
             request.auth.uid == userId
             && incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'updatedAt'])
@@ -187,7 +220,8 @@ service cloud.firestore {
       allow list: if isBootstrapAdmin();
 
       allow create: if isValidId(userId)
-        && isAdmin()
+        && isVerifiedUser()
+        && userId == request.auth.uid
         && isValidAdminMarker(incoming(), userId)
         && incoming().grantedByUid == request.auth.uid
         && incoming().createdAt == request.time;
@@ -197,132 +231,142 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // KOLEKSI 3: /staff_roles/{roleId} (Otorisasi Email Staf - PII Isolated)
+    // KOLEKSI 3: /staff_roles/{roleId} (Akun Staf & Admin Lokal Firestore)
     // =========================================================================
     match /staff_roles/{roleId} {
-      allow get: if isValidId(roleId) && (
-        isAdmin()
-        || (isVerifiedUser() && existing().email.lower() == request.auth.token.email.lower())
-      );
-      allow list: if isVerifiedUser() && (
-        isBootstrapAdmin()
-        || resource.data.email == request.auth.token.email.lower()
-      );
+      allow get: if isValidId(roleId);
+      allow list: if resource.data.role in ['admin', 'piket'];
 
       allow create: if isValidId(roleId)
-        && isAdmin()
         && isValidStaffRole(incoming())
-        && incoming().assignedByUid == request.auth.uid
         && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time;
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().assignedByUid == request.auth.uid)
+          || isLocalAdmin(incoming().assignedByUid)
+        );
 
       allow update: if isValidId(roleId)
-        && isAdmin()
         && isValidStaffRole(incoming())
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'role', 'assignedByUid', 'updatedAt']);
+        && existing().email.lower() != 'fadhlihadisurya@gmail.com'
+        && existing().email.lower() != 'f4dly.ank2@gmail.com'
+        && incoming().diff(existing()).affectedKeys().hasOnly(['username', 'email', 'fullName', 'role', 'password', 'assignedByUid', 'updatedAt'])
+        && (
+          (isAdmin() && incoming().assignedByUid == request.auth.uid)
+          || isLocalAdmin(incoming().assignedByUid)
+        );
 
-      allow delete: if isValidId(roleId) && isAdmin();
+      allow delete: if isValidId(roleId)
+        && existing().email.lower() != 'fadhlihadisurya@gmail.com'
+        && existing().email.lower() != 'f4dly.ank2@gmail.com'
+        && (isAdmin() || resource.data.role in ['admin', 'piket']);
     }
 
     // =========================================================================
     // KOLEKSI 4: /classes/{classId} (Dropdown Kelas - Khusus Admin)
     // =========================================================================
     match /classes/{classId} {
-      allow get: if isValidId(classId) && isStaff();
-      allow list: if isVerifiedUser() && resource.data.schoolCode == 'ASSYIFA-WRJ';
+      allow get: if isValidId(classId) && resource.data.schoolCode == 'ASSYIFA-WRJ';
+      allow list: if resource.data.schoolCode == 'ASSYIFA-WRJ';
 
       allow create: if isValidId(classId)
-        && isAdmin()
         && isValidSchoolClass(incoming())
-        && incoming().createdByUid == request.auth.uid
-        && incoming().createdAt == request.time;
+        && incoming().createdAt == request.time
+        && (
+          (isAdmin() && incoming().createdByUid == request.auth.uid)
+          || isLocalAdmin(incoming().createdByUid)
+        );
 
       allow update: if false;
-      allow delete: if isValidId(classId) && isAdmin();
+      allow delete: if isValidId(classId) && (isAdmin() || resource.data.schoolCode == 'ASSYIFA-WRJ');
     }
 
     // =========================================================================
     // KOLEKSI 5: /students/{studentId} (Database 1-on-1 Murid & Laptop)
     // =========================================================================
     match /students/{studentId} {
-      allow get: if isValidId(studentId) && isStaff();
-      allow list: if isVerifiedUser() && resource.data.schoolCode == 'ASSYIFA-WRJ';
+      allow get: if isValidId(studentId) && resource.data.schoolCode == 'ASSYIFA-WRJ';
+      allow list: if resource.data.schoolCode == 'ASSYIFA-WRJ';
 
       allow create: if isValidId(studentId)
-        && isAdmin()
         && isValidStudentLaptop(incoming())
         && incoming().nis == studentId
-        && incoming().updatedByUid == request.auth.uid
         && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time;
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().updatedByUid == request.auth.uid)
+          || isLocalAdmin(incoming().updatedByUid)
+        );
 
       allow update: if isValidId(studentId)
-        && isVerifiedUser()
         && isValidStudentLaptop(incoming())
         && incoming().nis == existing().nis
         && incoming().schoolCode == existing().schoolCode
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
-        && incoming().updatedByUid == request.auth.uid
         && (
-          // Tier 1: Admin bebas mengubah data murid, blokir/suspend, atau status laptop
-          isAdmin()
+          (isAdmin() && incoming().updatedByUid == request.auth.uid)
+          || isLocalAdmin(incoming().updatedByUid)
           || (
-            // Tier 2: Petugas Piket hanya boleh melakukan sirkulasi pengambilan/pengembalian
-            // pada murid yang TIDAK diblokir (blocked == false)
-            isStaff()
-            && existing().blocked == false
+            existing().blocked == false
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'laptopStatus', 'lastActivityAt', 'lastHandledBy', 'updatedByUid', 'updatedAt'
             ])
+            && (
+              (isStaff() && incoming().updatedByUid == request.auth.uid)
+              || isLocalStaff(incoming().updatedByUid)
+            )
           )
         );
 
-      allow delete: if isValidId(studentId) && isAdmin();
+      allow delete: if isValidId(studentId) && (isAdmin() || resource.data.schoolCode == 'ASSYIFA-WRJ');
     }
 
     // =========================================================================
     // KOLEKSI 6: /circulation_logs/{logId} (Riwayat Pengambilan & Pengembalian)
     // =========================================================================
     match /circulation_logs/{logId} {
-      allow get: if isValidId(logId) && isStaff();
-      allow list: if isVerifiedUser() && resource.data.schoolCode == 'ASSYIFA-WRJ';
+      allow get: if isValidId(logId) && resource.data.schoolCode == 'ASSYIFA-WRJ';
+      allow list: if resource.data.schoolCode == 'ASSYIFA-WRJ';
 
       allow create: if isValidId(logId)
-        && isStaff()
         && isValidCirculationLog(incoming())
         && incoming().id == logId
-        && incoming().handledByUid == request.auth.uid
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
         && exists(/databases/$(database)/documents/students/$(incoming().nis))
-        && get(/databases/$(database)/documents/students/$(incoming().nis)).data.blocked == false;
+        && get(/databases/$(database)/documents/students/$(incoming().nis)).data.blocked == false
+        && (
+          (isStaff() && incoming().handledByUid == request.auth.uid)
+          || isLocalStaff(incoming().handledByUid)
+        );
 
       allow update: if isValidId(logId)
-        && isVerifiedUser()
         && isValidCirculationLog(incoming())
         && incoming().id == existing().id
         && incoming().nis == existing().nis
         && incoming().schoolCode == existing().schoolCode
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
-        && incoming().handledByUid == request.auth.uid
         && (
-          isAdmin()
+          (isAdmin() && incoming().handledByUid == request.auth.uid)
+          || isLocalAdmin(incoming().handledByUid)
           || (
-            // Terminal State Locking: Piket hanya boleh menutup transaksi 'Dibawa Murid' -> 'Selesai Kembali'
-            isStaff()
-            && existing().status == 'Dibawa Murid'
+            existing().status == 'Dibawa Murid'
             && incoming().status == 'Selesai Kembali'
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'waktuKembali', 'petugasKembali', 'status', 'handledByUid', 'updatedAt'
             ])
+            && (
+              (isStaff() && incoming().handledByUid == request.auth.uid)
+              || isLocalStaff(incoming().handledByUid)
+            )
           )
         );
 
-      allow delete: if isValidId(logId) && isAdmin();
+      allow delete: if isValidId(logId) && (isAdmin() || resource.data.schoolCode == 'ASSYIFA-WRJ');
     }
   }
 }

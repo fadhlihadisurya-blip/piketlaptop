@@ -10,6 +10,12 @@
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_\\-]+$"
         },
+        "username": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "pattern": "^[a-zA-Z0-9_.\\-]+$"
+        },
         "fullName": {
           "type": "string",
           "minLength": 1,
@@ -54,9 +60,14 @@
     },
     "StaffRole": {
       "title": "StaffRole",
-      "description": "Daftar otorisasi email Google staf sekolah beserta perannya yang dikelola Admin.",
+      "description": "Daftar akun staf dan admin sekolah (username, password, role) yang tersimpan di Firestore.",
       "type": "object",
       "properties": {
+        "username": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
         "email": {
           "type": "string",
           "minLength": 3,
@@ -70,6 +81,10 @@
         "role": {
           "type": "string",
           "enum": ["admin", "piket"]
+        },
+        "password": {
+          "type": "string",
+          "maxLength": 100
         },
         "assignedByUid": {
           "type": "string",

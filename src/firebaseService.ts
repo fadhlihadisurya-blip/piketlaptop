@@ -3,6 +3,9 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithEmailAndPassword,
+  sendEmailVerification,
+  sendPasswordResetEmail,
   signOut,
   onAuthStateChanged,
   User,
@@ -31,7 +34,8 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 
 const SCHOOL_CODE = 'ASSYIFA-WRJ';
-const BOOTSTRAP_ADMIN_EMAIL = 'fadhlihadisurya@gmail.com';
+const PROVIDER_ADMIN_EMAILS = ['fadhlihadisurya@gmail.com', 'f4dly.ank2@gmail.com'];
+const LOCAL_STAFF_SESSION_KEY = 'piketlaptop_local_staff_id';
 const VALID_ID_REGEX = /^[a-zA-Z0-9_\-]+$/;
 
 export enum OperationType {
@@ -100,10 +104,12 @@ testConnection();
 export interface CloudUser {
   id: string;
   uid: string;
+  username?: string;
   email: string;
   fullName: string;
   role: 'admin' | 'piket';
   isBootstrapAdmin: boolean;
+  isProviderAdmin?: boolean;
 }
 
 export interface StudentRecord {
@@ -140,9 +146,11 @@ export interface CirculationLogRecord {
 
 export interface StaffRoleRecord {
   id: string;
+  username: string;
   email: string;
   fullName: string;
   role: 'admin' | 'piket';
+  password: string;
   assignedByUid: string;
 }
 
@@ -152,12 +160,19 @@ export interface ClassRecord {
 }
 
 type StateListener = () => void;
-type AuthListener = (user: CloudUser | null, isReady: boolean) => void;
+type AuthListener = (
+  user: CloudUser | null,
+  isReady: boolean,
+  unverifiedEmail?: string | null
+) => void;
 
 const cloudCache = {
   isReady: false,
+  studentsLoaded: false,
   classesLoaded: false,
+  logsLoaded: false,
   user: null as CloudUser | null,
+  unverifiedEmail: null as string | null,
   students: [] as StudentRecord[],
   classes: [] as ClassRecord[],
   logs: [] as CirculationLogRecord[],
@@ -182,7 +197,7 @@ function notifyStateListeners() {
 function notifyAuthListeners() {
   authListeners.forEach((fn) => {
     try {
-      fn(cloudCache.user, cloudCache.isReady);
+      fn(cloudCache.user, cloudCache.isReady, cloudCache.unverifiedEmail);
     } catch (err) {
       console.error('Error in auth listener:', err);
     }
@@ -198,7 +213,9 @@ function clearSubscriptions() {
     }
   });
   unsubscribers = [];
+  cloudCache.studentsLoaded = false;
   cloudCache.classesLoaded = false;
+  cloudCache.logsLoaded = false;
   cloudCache.students = [];
   cloudCache.classes = [];
   cloudCache.logs = [];
@@ -237,10 +254,18 @@ function makeSafeRoleId(email: string): string {
   return slug ? `role-${slug}` : `role-${Date.now()}`;
 }
 
+function getActiveActorUid(): string {
+  return auth.currentUser?.uid || cloudCache.user?.uid || '';
+}
+
 async function resolveAndBootstrapUser(firebaseUser: User): Promise<CloudUser> {
   const uid = firebaseUser.uid;
   const emailLower = (firebaseUser.email || '').trim().toLowerCase();
-  const isBootstrap = emailLower === BOOTSTRAP_ADMIN_EMAIL;
+  const isBootstrap = PROVIDER_ADMIN_EMAILS.includes(emailLower);
+
+  const isPasswordProvider =
+    firebaseUser.providerData.some((p) => p.providerId === 'password') ||
+    (firebaseUser as any).providerId === 'password';
 
   // 1. Cek apakah user memiliki dokumen di /admins/{uid}
   let hasAdminMarker = false;
@@ -251,20 +276,28 @@ async function resolveAndBootstrapUser(firebaseUser: User): Promise<CloudUser> {
     handleFirestoreError(error, OperationType.GET, `admins/${uid}`);
   }
 
-  // 2. Cek apakah email staf terdaftar di /staff_roles (query sesuai rule list)
+  // 2. Cek apakah email staf terdaftar di /staff_roles (query sesuai rule list: role in ['admin', 'piket'])
   let assignedStaffRole: StaffRoleRecord | null = null;
   if (emailLower) {
     try {
-      const roleQuery = query(collection(db, 'staff_roles'), where('email', '==', emailLower));
+      const roleQuery = query(
+        collection(db, 'staff_roles'),
+        where('role', 'in', ['admin', 'piket'])
+      );
       const roleSnap = await getDocs(roleQuery);
-      if (!roleSnap.empty) {
-        const d = roleSnap.docs[0];
-        const data = d.data();
+      const matchedDoc = roleSnap.docs.find(
+        (d) => String(d.data().email || '').trim().toLowerCase() === emailLower
+      );
+      if (matchedDoc) {
+        const data = matchedDoc.data();
+        const fallbackUsername = emailLower.includes('@') ? emailLower.split('@')[0] : emailLower;
         assignedStaffRole = {
-          id: d.id,
+          id: matchedDoc.id,
+          username: String(data.username || fallbackUsername),
           email: String(data.email || emailLower),
           fullName: String(data.fullName || ''),
           role: data.role === 'admin' ? 'admin' : 'piket',
+          password: String(data.password || ''),
           assignedByUid: String(data.assignedByUid || ''),
         };
       }
@@ -273,8 +306,8 @@ async function resolveAndBootstrapUser(firebaseUser: User): Promise<CloudUser> {
     }
   }
 
-  // 3. Jika Bootstrap Admin dan belum memiliki dokumen /admins/{uid}, buat penanda admin
-  if (isBootstrap && !hasAdminMarker) {
+  // 3. Jika Bootstrap Admin atau login Email/Password dan belum memiliki dokumen /admins/{uid}, buat penanda admin
+  if ((isBootstrap || isPasswordProvider) && !hasAdminMarker) {
     try {
       await setDoc(doc(db, 'admins', uid), {
         uid,
@@ -303,18 +336,18 @@ async function resolveAndBootstrapUser(firebaseUser: User): Promise<CloudUser> {
       existingUserData?.fullName ||
       firebaseUser.displayName ||
       emailLower ||
-      'Petugas Sekolah',
+      'Superadmin Sekolah',
     120
   );
 
   let effectiveRole: 'admin' | 'piket' = 'piket';
-  if (isBootstrap || hasAdminMarker || existingUserData?.role === 'admin') {
+  if (isBootstrap || isPasswordProvider || hasAdminMarker || existingUserData?.role === 'admin') {
     effectiveRole = 'admin';
   }
 
   // 5. Pastikan dokumen /users/{uid} ada dan sinkron (tanpa menyimpan PII email)
   if (!existingUserData) {
-    const createRole: 'admin' | 'piket' = isBootstrap || hasAdminMarker ? 'admin' : 'piket';
+    const createRole: 'admin' | 'piket' = isBootstrap || isPasswordProvider || hasAdminMarker ? 'admin' : 'piket';
     try {
       await setDoc(doc(db, 'users', uid), {
         uid,
@@ -327,7 +360,7 @@ async function resolveAndBootstrapUser(firebaseUser: User): Promise<CloudUser> {
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `users/${uid}`);
     }
-  } else if (isBootstrap && existingUserData.role !== 'admin') {
+  } else if ((isBootstrap || isPasswordProvider) && existingUserData.role !== 'admin') {
     try {
       await updateDoc(doc(db, 'users', uid), {
         role: 'admin',
@@ -342,10 +375,12 @@ async function resolveAndBootstrapUser(firebaseUser: User): Promise<CloudUser> {
   return {
     id: uid,
     uid,
+    username: emailLower.includes('@') ? emailLower.split('@')[0] : emailLower,
     email: emailLower,
     fullName: displayName,
     role: effectiveRole,
     isBootstrapAdmin: isBootstrap,
+    isProviderAdmin: true,
   };
 }
 
@@ -381,6 +416,7 @@ function attachFirestoreListeners(user: CloudUser) {
         });
         list.sort((a, b) => a.nis.localeCompare(b.nis, 'id'));
         cloudCache.students = list;
+        cloudCache.studentsLoaded = true;
         notifyStateListeners();
       },
       (error) => {
@@ -448,6 +484,7 @@ function attachFirestoreListeners(user: CloudUser) {
           return timeB.localeCompare(timeA);
         });
         cloudCache.logs = list;
+        cloudCache.logsLoaded = true;
         notifyStateListeners();
       },
       (error) => {
@@ -456,19 +493,29 @@ function attachFirestoreListeners(user: CloudUser) {
     )
   );
 
-  // 4. Staff roles & Users listeners (sesuai rule: hanya bootstrapAdmin yang boleh list keseluruhan)
-  if (user.isBootstrapAdmin) {
+  // 4. Staff roles listener untuk Admin (menggunakan query sesuai rule list)
+  if (user.role === 'admin' || user.isBootstrapAdmin) {
+    const staffRolesQuery = query(
+      collection(db, 'staff_roles'),
+      where('role', 'in', ['admin', 'piket'])
+    );
     unsubscribers.push(
       onSnapshot(
-        collection(db, 'staff_roles'),
+        staffRolesQuery,
         (snapshot) => {
           const list: StaffRoleRecord[] = snapshot.docs.map((d) => {
             const data = d.data();
+            const emailVal = String(data.email || '');
+            const fallbackUsername = emailVal.includes('@')
+              ? emailVal.split('@')[0]
+              : emailVal || d.id.replace(/^role-/, '');
             return {
               id: d.id,
-              email: String(data.email || ''),
+              username: String(data.username || fallbackUsername),
+              email: emailVal,
               fullName: String(data.fullName || ''),
               role: data.role === 'admin' ? 'admin' : 'piket',
+              password: String(data.password || ''),
               assignedByUid: String(data.assignedByUid || ''),
             };
           });
@@ -481,39 +528,66 @@ function attachFirestoreListeners(user: CloudUser) {
         }
       )
     );
-
-    unsubscribers.push(
-      onSnapshot(
-        collection(db, 'users'),
-        (snapshot) => {
-          const list = snapshot.docs.map((d) => {
-            const data = d.data();
-            return {
-              uid: String(data.uid || d.id),
-              fullName: String(data.fullName || ''),
-              role: (data.role === 'admin' ? 'admin' : 'piket') as 'admin' | 'piket',
-            };
-          });
-          cloudCache.registeredUsers = list;
-          notifyStateListeners();
-        },
-        (error) => {
-          handleFirestoreError(error, OperationType.LIST, 'users');
-        }
-      )
-    );
   }
 }
 
 onAuthStateChanged(auth, async (firebaseUser) => {
   if (!firebaseUser) {
+    const savedLocalStaffId = sessionStorage.getItem(LOCAL_STAFF_SESSION_KEY);
+    if (savedLocalStaffId && VALID_ID_REGEX.test(savedLocalStaffId)) {
+      try {
+        const snap = await getDoc(doc(db, 'staff_roles', savedLocalStaffId));
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data.role === 'admin' || data.role === 'piket') {
+            const emailLower = String(data.email || `${savedLocalStaffId}@piketlaptop.local`).toLowerCase();
+            const uname = String(
+              data.username || (emailLower.includes('@') ? emailLower.split('@')[0] : savedLocalStaffId.replace(/^role-/, ''))
+            );
+            const isProvider = PROVIDER_ADMIN_EMAILS.includes(emailLower);
+            const cloudUser: CloudUser = {
+              id: snap.id,
+              uid: snap.id,
+              username: uname,
+              email: emailLower,
+              fullName: String(data.fullName || uname),
+              role: data.role === 'admin' ? 'admin' : 'piket',
+              isBootstrapAdmin: isProvider,
+              isProviderAdmin: isProvider,
+            };
+            cloudCache.unverifiedEmail = null;
+            cloudCache.user = cloudUser;
+            cloudCache.isReady = true;
+            attachFirestoreListeners(cloudUser);
+            notifyAuthListeners();
+            return;
+          }
+        }
+      } catch {
+        // lanjut bersihkan sesi lokal jika gagal memuat
+      }
+      sessionStorage.removeItem(LOCAL_STAFF_SESSION_KEY);
+    }
+
     clearSubscriptions();
     cloudCache.user = null;
+    cloudCache.unverifiedEmail = null;
     cloudCache.isReady = true;
     notifyAuthListeners();
     return;
   }
 
+  if (!firebaseUser.emailVerified) {
+    clearSubscriptions();
+    cloudCache.user = null;
+    cloudCache.unverifiedEmail = firebaseUser.email || 'Email Anda';
+    cloudCache.isReady = true;
+    notifyAuthListeners();
+    return;
+  }
+
+  sessionStorage.removeItem(LOCAL_STAFF_SESSION_KEY);
+  cloudCache.unverifiedEmail = null;
   try {
     const cloudUser = await resolveAndBootstrapUser(firebaseUser);
     cloudCache.user = cloudUser;
@@ -535,7 +609,7 @@ export const firebaseBackend = {
   onAuthChange(cb: AuthListener): () => void {
     authListeners.add(cb);
     if (cloudCache.isReady) {
-      cb(cloudCache.user, true);
+      cb(cloudCache.user, true, cloudCache.unverifiedEmail);
     }
     return () => authListeners.delete(cb);
   },
@@ -555,6 +629,14 @@ export const firebaseBackend = {
 
   isClassesLoaded(): boolean {
     return cloudCache.classesLoaded;
+  },
+
+  areCollectionsLoaded(): boolean {
+    return (
+      cloudCache.studentsLoaded &&
+      cloudCache.classesLoaded &&
+      cloudCache.logsLoaded
+    );
   },
 
   getStudents(): StudentRecord[] {
@@ -581,10 +663,15 @@ export const firebaseBackend = {
     return cloudCache.registeredUsers;
   },
 
+  getUnverifiedEmail(): string | null {
+    return cloudCache.unverifiedEmail;
+  },
+
   async signInWithGoogle(): Promise<CloudUser> {
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
     const cred = await signInWithPopup(auth, provider);
+    cloudCache.unverifiedEmail = null;
     const cloudUser = await resolveAndBootstrapUser(cred.user);
     cloudCache.user = cloudUser;
     cloudCache.isReady = true;
@@ -593,14 +680,233 @@ export const firebaseBackend = {
     return cloudUser;
   },
 
+  async signInUnified(
+    usernameOrEmail: string,
+    password: string
+  ): Promise<
+    | { status: 'signed_in'; user: CloudUser }
+    | { status: 'verification_required'; email: string; verificationSent: boolean }
+  > {
+    const cleanInput = usernameOrEmail.trim().toLowerCase();
+    const cleanPass = password.trim();
+    if (!cleanInput || !cleanPass) {
+      throw new Error('Username/email dan password wajib diisi.');
+    }
+
+    // 1. Jika input berformat email (@)
+    if (cleanInput.includes('@')) {
+      try {
+        const authResult = await this.signInWithEmail(cleanInput, cleanPass);
+        return authResult;
+      } catch (authErr: any) {
+        // Fallback ke staff_roles lokal Firestore jika ada akun staff_roles dengan email ini
+        try {
+          const localUser = await this.signInWithUsername(cleanInput, cleanPass);
+          return { status: 'signed_in', user: localUser };
+        } catch {
+          throw authErr;
+        }
+      }
+    }
+
+    // 2. Jika input adalah username biasa (tanpa @)
+    try {
+      const localUser = await this.signInWithUsername(cleanInput, cleanPass);
+      return { status: 'signed_in', user: localUser };
+    } catch (localErr) {
+      // Cek apakah username ini memiliki email terdaftar di staff_roles yang memakai Firebase Auth
+      let matchedEmail = '';
+      try {
+        const rolesQuery = query(
+          collection(db, 'staff_roles'),
+          where('role', 'in', ['admin', 'piket'])
+        );
+        const allRolesSnap = await getDocs(rolesQuery);
+        for (const d of allRolesSnap.docs) {
+          const data = d.data();
+          const emailVal = String(data.email || '').trim().toLowerCase();
+          const unameVal = String(data.username || '').trim().toLowerCase();
+          const baseName = emailVal.includes('@') ? emailVal.split('@')[0] : emailVal;
+          if ((unameVal === cleanInput || baseName === cleanInput) && emailVal.includes('@')) {
+            matchedEmail = emailVal;
+            break;
+          }
+        }
+      } catch {
+        // abaikan
+      }
+
+      if (matchedEmail) {
+        try {
+          const authResult = await this.signInWithEmail(matchedEmail, cleanPass);
+          return authResult;
+        } catch {
+          // abaikan
+        }
+      }
+
+      throw localErr;
+    }
+  },
+
+  async signInWithUsername(
+    username: string,
+    password: string
+  ): Promise<CloudUser> {
+    const cleanUser = username.trim().toLowerCase();
+    const cleanPass = password.trim();
+    if (!cleanUser || !cleanPass) {
+      throw new Error('Username dan password wajib diisi.');
+    }
+
+    let allRolesSnap;
+    try {
+      const rolesQuery = query(
+        collection(db, 'staff_roles'),
+        where('role', 'in', ['admin', 'piket'])
+      );
+      allRolesSnap = await getDocs(rolesQuery);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'staff_roles');
+    }
+
+    let matchedDoc: Record<string, any> | null = null;
+    let matchedId = '';
+
+    for (const d of allRolesSnap.docs) {
+      const data = d.data();
+      const emailVal = String(data.email || '').trim().toLowerCase();
+      const unameVal = String(data.username || '').trim().toLowerCase();
+      const baseName = emailVal.includes('@') ? emailVal.split('@')[0] : emailVal;
+      if (emailVal === cleanUser || unameVal === cleanUser || baseName === cleanUser) {
+        matchedDoc = data;
+        matchedId = d.id;
+        break;
+      }
+    }
+
+    if (!matchedDoc || !matchedId) {
+      throw new Error('Username tidak ditemukan di Firestore.');
+    }
+
+    if (!matchedDoc.password || String(matchedDoc.password) !== cleanPass) {
+      throw new Error('Password salah.');
+    }
+
+    const emailLower = String(matchedDoc.email || `${cleanUser}@piketlaptop.local`).toLowerCase();
+    const uname = String(
+      matchedDoc.username || (emailLower.includes('@') ? emailLower.split('@')[0] : cleanUser)
+    );
+    const fullName = String(matchedDoc.fullName || uname);
+    const role = matchedDoc.role === 'admin' ? 'admin' : 'piket';
+    const isProvider = PROVIDER_ADMIN_EMAILS.includes(emailLower);
+
+    const cloudUser: CloudUser = {
+      id: matchedId,
+      uid: matchedId,
+      username: uname,
+      email: emailLower,
+      fullName,
+      role,
+      isBootstrapAdmin: isProvider,
+      isProviderAdmin: isProvider,
+    };
+
+    sessionStorage.setItem(LOCAL_STAFF_SESSION_KEY, matchedId);
+    cloudCache.unverifiedEmail = null;
+    cloudCache.user = cloudUser;
+    cloudCache.isReady = true;
+    attachFirestoreListeners(cloudUser);
+    notifyAuthListeners();
+    return cloudUser;
+  },
+
+  async signInWithEmail(
+    email: string,
+    password: string
+  ): Promise<
+    | { status: 'signed_in'; user: CloudUser }
+    | { status: 'verification_required'; email: string; verificationSent: boolean }
+  > {
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !password) {
+      throw new Error('Email dan password superadmin wajib diisi.');
+    }
+    const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
+    if (!cred.user.emailVerified) {
+      let verificationSent = false;
+      try {
+        await sendEmailVerification(cred.user);
+        verificationSent = true;
+      } catch {
+        verificationSent = false;
+      }
+      clearSubscriptions();
+      cloudCache.user = null;
+      cloudCache.unverifiedEmail = cred.user.email || cleanEmail;
+      cloudCache.isReady = true;
+      notifyAuthListeners();
+      return {
+        status: 'verification_required',
+        email: cred.user.email || cleanEmail,
+        verificationSent,
+      };
+    }
+
+    cloudCache.unverifiedEmail = null;
+    const cloudUser = await resolveAndBootstrapUser(cred.user);
+    cloudCache.user = cloudUser;
+    cloudCache.isReady = true;
+    attachFirestoreListeners(cloudUser);
+    notifyAuthListeners();
+    return { status: 'signed_in', user: cloudUser };
+  },
+
+  async resendVerificationEmail(): Promise<void> {
+    if (!auth.currentUser) {
+      throw new Error('Tidak ada sesi email yang menunggu verifikasi.');
+    }
+    await sendEmailVerification(auth.currentUser);
+  },
+
+  async reloadAndVerifyEmail(): Promise<CloudUser | null> {
+    if (!auth.currentUser) {
+      throw new Error('Tidak ada sesi email yang aktif.');
+    }
+    await auth.currentUser.reload();
+    if (!auth.currentUser.emailVerified) {
+      return null;
+    }
+    await auth.currentUser.getIdToken(true);
+    cloudCache.unverifiedEmail = null;
+    const cloudUser = await resolveAndBootstrapUser(auth.currentUser);
+    cloudCache.user = cloudUser;
+    cloudCache.isReady = true;
+    attachFirestoreListeners(cloudUser);
+    notifyAuthListeners();
+    return cloudUser;
+  },
+
+  async sendPasswordReset(email: string): Promise<void> {
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      throw new Error('Masukkan alamat email superadmin yang valid terlebih dahulu.');
+    }
+    await sendPasswordResetEmail(auth, cleanEmail);
+  },
+
   async signOutUser(): Promise<void> {
+    sessionStorage.removeItem(LOCAL_STAFF_SESSION_KEY);
     clearSubscriptions();
+    cloudCache.user = null;
+    cloudCache.unverifiedEmail = null;
     await signOut(auth);
+    notifyAuthListeners();
   },
 
   async addClass(name: string): Promise<void> {
-    const uid = auth.currentUser?.uid;
-    if (!uid) throw new Error('Sesi autentikasi Google belum aktif.');
+    const uid = getActiveActorUid();
+    if (!uid) throw new Error('Sesi autentikasi belum aktif.');
     const cleanName = clampStr(name, 60);
     if (!cleanName) throw new Error('Nama kelas tidak boleh kosong.');
     const classId = makeSafeClassId(cleanName);
@@ -627,8 +933,8 @@ export const firebaseBackend = {
   },
 
   async deleteClassByName(name: string): Promise<void> {
-    const uid = auth.currentUser?.uid;
-    if (!uid) throw new Error('Sesi autentikasi Google belum aktif.');
+    const uid = getActiveActorUid();
+    if (!uid) throw new Error('Sesi autentikasi belum aktif.');
     const found = cloudCache.classes.find(
       (c) => c.name.toLowerCase() === name.trim().toLowerCase()
     );
@@ -653,8 +959,8 @@ export const firebaseBackend = {
     },
     originalNis = ''
   ): Promise<void> {
-    const uid = auth.currentUser?.uid;
-    if (!uid) throw new Error('Sesi autentikasi Google belum aktif.');
+    const uid = getActiveActorUid();
+    if (!uid) throw new Error('Sesi autentikasi belum aktif.');
 
     const nis = clampStr(payload.nis, 40);
     const laptopCode = clampStr(payload.laptopCode, 40);
@@ -742,7 +1048,7 @@ export const firebaseBackend = {
   },
 
   async deleteStudent(nis: string): Promise<void> {
-    if (!auth.currentUser?.uid) throw new Error('Sesi autentikasi Google belum aktif.');
+    if (!getActiveActorUid()) throw new Error('Sesi autentikasi belum aktif.');
     try {
       await deleteDoc(doc(db, 'students', nis));
     } catch (error) {
@@ -756,8 +1062,8 @@ export const firebaseBackend = {
     timestamp: string,
     handlerName: string
   ): Promise<void> {
-    const uid = auth.currentUser?.uid;
-    if (!uid) throw new Error('Sesi autentikasi Google belum aktif.');
+    const uid = getActiveActorUid();
+    if (!uid) throw new Error('Sesi autentikasi belum aktif.');
     try {
       await updateDoc(doc(db, 'students', nis), {
         blocked: true,
@@ -777,8 +1083,8 @@ export const firebaseBackend = {
     timestamp: string,
     handlerName: string
   ): Promise<void> {
-    const uid = auth.currentUser?.uid;
-    if (!uid) throw new Error('Sesi autentikasi Google belum aktif.');
+    const uid = getActiveActorUid();
+    if (!uid) throw new Error('Sesi autentikasi belum aktif.');
     try {
       await updateDoc(doc(db, 'students', nis), {
         blocked: false,
@@ -799,8 +1105,8 @@ export const firebaseBackend = {
     todayKey: string,
     handlerName: string
   ): Promise<void> {
-    const uid = auth.currentUser?.uid;
-    if (!uid) throw new Error('Sesi autentikasi Google belum aktif.');
+    const uid = getActiveActorUid();
+    if (!uid) throw new Error('Sesi autentikasi belum aktif.');
 
     const logId = `log-${Date.now()}`;
     const batch = writeBatch(db);
@@ -846,8 +1152,8 @@ export const firebaseBackend = {
     todayKey: string,
     handlerName: string
   ): Promise<void> {
-    const uid = auth.currentUser?.uid;
-    if (!uid) throw new Error('Sesi autentikasi Google belum aktif.');
+    const uid = getActiveActorUid();
+    if (!uid) throw new Error('Sesi autentikasi belum aktif.');
 
     const batch = writeBatch(db);
 
@@ -896,7 +1202,7 @@ export const firebaseBackend = {
   },
 
   async deleteCirculationLog(logId: string): Promise<void> {
-    if (!auth.currentUser?.uid) throw new Error('Sesi autentikasi Google belum aktif.');
+    if (!getActiveActorUid()) throw new Error('Sesi autentikasi belum aktif.');
     try {
       await deleteDoc(doc(db, 'circulation_logs', logId));
     } catch (error) {
@@ -905,7 +1211,7 @@ export const firebaseBackend = {
   },
 
   async clearAllLogs(): Promise<void> {
-    if (!auth.currentUser?.uid) throw new Error('Sesi autentikasi Google belum aktif.');
+    if (!getActiveActorUid()) throw new Error('Sesi autentikasi belum aktif.');
     const batch = writeBatch(db);
     cloudCache.logs.forEach((l) => {
       batch.delete(doc(db, 'circulation_logs', l.id));
@@ -918,28 +1224,51 @@ export const firebaseBackend = {
   },
 
   async upsertStaffRole(
-    email: string,
+    identifier: string,
     fullName: string,
-    role: 'admin' | 'piket'
+    role: 'admin' | 'piket',
+    password = ''
   ): Promise<void> {
-    const uid = auth.currentUser?.uid;
-    if (!uid) throw new Error('Sesi autentikasi Google belum aktif.');
+    const uid = getActiveActorUid();
+    if (!uid) throw new Error('Sesi autentikasi belum aktif.');
 
-    const cleanEmail = clampStr(email, 160).toLowerCase();
+    const cleanInput = clampStr(identifier, 160).toLowerCase();
     const cleanName = clampStr(fullName, 120);
-    if (!cleanEmail || !cleanEmail.includes('@') || !cleanName) {
-      throw new Error('Nama lengkap dan alamat email Google valid wajib diisi.');
+    const cleanPassword = clampStr(password, 100);
+    if (!cleanInput || !cleanName) {
+      throw new Error('Nama lengkap dan username wajib diisi.');
     }
 
+    const cleanUsername = clampStr(
+      cleanInput.includes('@') ? cleanInput.split('@')[0] : cleanInput,
+      80
+    );
+    if (!cleanUsername) {
+      throw new Error('Username tidak valid.');
+    }
+    const email = cleanInput.includes('@')
+      ? cleanInput
+      : `${cleanUsername}@piketlaptop.local`;
+
     const existing = cloudCache.staffRoles.find(
-      (r) => r.email.toLowerCase() === cleanEmail
+      (r) =>
+        r.id === makeSafeRoleId(cleanUsername) ||
+        r.id === makeSafeRoleId(cleanInput) ||
+        r.username.toLowerCase() === cleanUsername ||
+        r.email.toLowerCase() === email
     );
 
     if (existing) {
+      if (PROVIDER_ADMIN_EMAILS.includes(existing.email.toLowerCase()) && role !== 'admin') {
+        throw new Error('Admin yang login dari provider tidak dapat diubah menjadi piket.');
+      }
       try {
         await updateDoc(doc(db, 'staff_roles', existing.id), {
+          username: cleanUsername,
+          email,
           fullName: cleanName,
           role,
+          password: cleanPassword || existing.password || '',
           assignedByUid: uid,
           updatedAt: serverTimestamp(),
         });
@@ -949,13 +1278,19 @@ export const firebaseBackend = {
       return;
     }
 
-    const roleId = makeSafeRoleId(cleanEmail);
+    if (!cleanPassword || cleanPassword.length < 4) {
+      throw new Error('Password wajib diisi minimal 4 karakter.');
+    }
+
+    const roleId = makeSafeRoleId(cleanUsername);
     assertValidId(roleId, 'ID Peran Staf');
     try {
       await setDoc(doc(db, 'staff_roles', roleId), {
-        email: cleanEmail,
+        username: cleanUsername,
+        email,
         fullName: cleanName,
         role,
+        password: cleanPassword,
         assignedByUid: uid,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -966,11 +1301,34 @@ export const firebaseBackend = {
   },
 
   async deleteStaffRole(roleId: string): Promise<void> {
-    if (!auth.currentUser?.uid) throw new Error('Sesi autentikasi Google belum aktif.');
+    if (!getActiveActorUid()) throw new Error('Sesi autentikasi belum aktif.');
+    const target = cloudCache.staffRoles.find((r) => r.id === roleId);
+    if (target && PROVIDER_ADMIN_EMAILS.includes(target.email.toLowerCase())) {
+      throw new Error('Admin yang login dari provider tidak dapat dihapus.');
+    }
+    if (cloudCache.user && cloudCache.user.uid === roleId) {
+      throw new Error('Tidak dapat menghapus akun yang sedang digunakan.');
+    }
     try {
       await deleteDoc(doc(db, 'staff_roles', roleId));
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `staff_roles/${roleId}`);
+    }
+  },
+
+  async setRegisteredUserRole(targetUid: string, newRole: 'admin' | 'piket'): Promise<void> {
+    const uid = getActiveActorUid();
+    if (!uid) throw new Error('Sesi autentikasi belum aktif.');
+    const cleanUid = clampStr(targetUid, 128);
+    assertValidId(cleanUid, 'UID Pengguna');
+
+    try {
+      await updateDoc(doc(db, 'users', cleanUid), {
+        role: newRole,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${cleanUid}`);
     }
   },
 
@@ -979,8 +1337,8 @@ export const firebaseBackend = {
     defaultStudents: StudentRecord[],
     defaultLogs: CirculationLogRecord[]
   ): Promise<void> {
-    const uid = auth.currentUser?.uid;
-    if (!uid) throw new Error('Sesi autentikasi Google belum aktif.');
+    const uid = getActiveActorUid();
+    if (!uid) throw new Error('Sesi autentikasi belum aktif.');
 
     // Batch 1: Hapus logs lama + simpan classes & students terlebih dahulu
     // (Rules circulation_logs create mengecek exists(/students/{nis}) dan blocked == false)
@@ -1047,32 +1405,47 @@ export const firebaseBackend = {
       handleFirestoreError(error, OperationType.WRITE, 'students');
     }
 
-    // Batch 2: Setelah students ter-commit, simpan circulation_logs
-    const batch2 = writeBatch(db);
-    defaultLogs.forEach((l) => {
-      batch2.set(doc(db, 'circulation_logs', l.id), {
-        id: clampStr(l.id, 80),
-        dateKey: clampStr(l.dateKey, 20),
-        nis: clampStr(l.nis, 40),
-        nama: clampStr(l.nama, 120),
-        kelas: clampStr(l.kelas, 60),
-        laptopCode: clampStr(l.laptopCode, 40),
-        waktuAmbil: clampStr(l.waktuAmbil || '', 40),
-        waktuKembali: clampStr(l.waktuKembali || '', 40),
-        petugasAmbil: clampStr(l.petugasAmbil || '', 120),
-        petugasKembali: clampStr(l.petugasKembali || '', 120),
-        status: l.status === 'Dibawa Murid' ? 'Dibawa Murid' : 'Selesai Kembali',
-        schoolCode: SCHOOL_CODE,
-        handledByUid: uid,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+    // Batch 2: Setelah students ter-commit, simpan circulation_logs yang valid (murid ada & tidak diblokir)
+    const allowedLogNis = new Set(
+      defaultStudents.filter((s) => !s.blocked).map((s) => clampStr(s.nis, 40))
+    );
+    const validLogs = defaultLogs.filter((l) => {
+      const nis = clampStr(l.nis, 40);
+      const id = clampStr(l.id, 80);
+      return (
+        allowedLogNis.has(nis) &&
+        VALID_ID_REGEX.test(id) &&
+        VALID_ID_REGEX.test(clampStr(l.laptopCode, 40))
+      );
     });
 
-    try {
-      await batch2.commit();
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'circulation_logs');
+    if (validLogs.length > 0) {
+      const batch2 = writeBatch(db);
+      validLogs.forEach((l) => {
+        batch2.set(doc(db, 'circulation_logs', clampStr(l.id, 80)), {
+          id: clampStr(l.id, 80),
+          dateKey: clampStr(l.dateKey, 20),
+          nis: clampStr(l.nis, 40),
+          nama: clampStr(l.nama, 120),
+          kelas: clampStr(l.kelas, 60),
+          laptopCode: clampStr(l.laptopCode, 40),
+          waktuAmbil: clampStr(l.waktuAmbil || '', 40),
+          waktuKembali: clampStr(l.waktuKembali || '', 40),
+          petugasAmbil: clampStr(l.petugasAmbil || '', 120),
+          petugasKembali: clampStr(l.petugasKembali || '', 120),
+          status: l.status === 'Dibawa Murid' ? 'Dibawa Murid' : 'Selesai Kembali',
+          schoolCode: SCHOOL_CODE,
+          handledByUid: uid,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      });
+
+      try {
+        await batch2.commit();
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'circulation_logs');
+      }
     }
   },
 };
@@ -1084,3 +1457,4 @@ declare global {
 }
 
 window.firebaseBackend = firebaseBackend;
+window.dispatchEvent(new CustomEvent('firebaseBackendReady'));
