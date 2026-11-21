@@ -312,6 +312,126 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "DutySchedule": {
+      "title": "DutySchedule",
+      "description": "Jadwal piket petugas sirkulasi laptop harian dan mingguan.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "hari": {
+          "type": "string",
+          "enum": ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Ahad"]
+        },
+        "shift": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "jamMulai": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 10
+        },
+        "jamSelesai": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 10
+        },
+        "petugas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "kontak": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "lokasi": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "keterangan": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "schoolCode": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "createdByUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "hari",
+        "shift",
+        "jamMulai",
+        "jamSelesai",
+        "petugas",
+        "schoolCode",
+        "createdByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AppSetting": {
+      "title": "AppSetting",
+      "description": "Pengaturan mode sirkulasi QR (qr laptop atau qr laptop dan murid) yang tersinkron di Firestore.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "qrScanMode": {
+          "type": "string",
+          "enum": ["laptop", "both"]
+        },
+        "schoolCode": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "updatedByUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "qrScanMode",
+        "schoolCode",
+        "updatedByUid",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -338,6 +458,14 @@
     "/circulation_logs/{logId}": {
       "schema": { "$ref": "#/entities/CirculationLog" },
       "description": "Riwayat pengambilan dan pengembalian unit laptop murid."
+    },
+    "/duty_schedules/{scheduleId}": {
+      "schema": { "$ref": "#/entities/DutySchedule" },
+      "description": "Jadwal piket staf sirkulasi laptop."
+    },
+    "/app_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/AppSetting" },
+      "description": "Pengaturan global sekolah termasuk mode scan QR."
     }
   }
 }

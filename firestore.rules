@@ -171,6 +171,45 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidDutySchedule(data) {
+      return data.keys().hasAll([
+          'id', 'hari', 'shift', 'jamMulai', 'jamSelesai', 'petugas',
+          'schoolCode', 'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'hari', 'shift', 'jamMulai', 'jamSelesai', 'petugas',
+          'kontak', 'lokasi', 'keterangan', 'schoolCode', 'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 80 && data.id.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.hari is string && data.hari in ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Ahad']
+        && data.shift is string && data.shift.size() >= 1 && data.shift.size() <= 60
+        && data.jamMulai is string && data.jamMulai.size() >= 3 && data.jamMulai.size() <= 10
+        && data.jamSelesai is string && data.jamSelesai.size() >= 3 && data.jamSelesai.size() <= 10
+        && data.petugas is string && data.petugas.size() >= 1 && data.petugas.size() <= 160
+        && (!data.keys().hasAll(['kontak']) || (data.kontak is string && data.kontak.size() <= 50))
+        && (!data.keys().hasAll(['lokasi']) || (data.lokasi is string && data.lokasi.size() <= 100))
+        && (!data.keys().hasAll(['keterangan']) || (data.keterangan is string && data.keterangan.size() <= 300))
+        && data.schoolCode is string && data.schoolCode == 'ASSYIFA-WRJ'
+        && data.createdByUid is string && isValidId(data.createdByUid)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAppSetting(data) {
+      return data.keys().hasAll([
+          'id', 'qrScanMode', 'schoolCode', 'updatedByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'qrScanMode', 'schoolCode', 'updatedByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 80 && data.id.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.qrScanMode is string && data.qrScanMode in ['laptop', 'both']
+        && data.schoolCode is string && data.schoolCode == 'ASSYIFA-WRJ'
+        && data.updatedByUid is string && isValidId(data.updatedByUid)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     // =========================================================================
     // KOLEKSI 1: /users/{userId} (PII-Free User Profile & Role)
     // =========================================================================
@@ -367,6 +406,71 @@ service cloud.firestore {
         );
 
       allow delete: if isValidId(logId) && (isAdmin() || resource.data.schoolCode == 'ASSYIFA-WRJ');
+    }
+
+    // =========================================================================
+    // KOLEKSI 7: /duty_schedules/{scheduleId} (Jadwal Piket Petugas)
+    // =========================================================================
+    match /duty_schedules/{scheduleId} {
+      allow get: if isValidId(scheduleId) && resource.data.schoolCode == 'ASSYIFA-WRJ';
+      allow list: if resource.data.schoolCode == 'ASSYIFA-WRJ';
+
+      allow create: if isValidId(scheduleId)
+        && isValidDutySchedule(incoming())
+        && incoming().id == scheduleId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().createdByUid == request.auth.uid)
+          || isLocalAdmin(incoming().createdByUid)
+        );
+
+      allow update: if isValidId(scheduleId)
+        && isValidDutySchedule(incoming())
+        && incoming().id == existing().id
+        && incoming().schoolCode == existing().schoolCode
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().createdByUid == request.auth.uid)
+          || isLocalAdmin(incoming().createdByUid)
+        );
+
+      allow delete: if isValidId(scheduleId) && (isAdmin() || resource.data.schoolCode == 'ASSYIFA-WRJ');
+    }
+
+    // =========================================================================
+    // KOLEKSI 8: /app_settings/{settingId} (Pengaturan Mode QR Sekolah)
+    // =========================================================================
+    match /app_settings/{settingId} {
+      allow get: if isValidId(settingId) && (resource == null || resource.data.schoolCode == 'ASSYIFA-WRJ');
+      allow list: if resource.data.schoolCode == 'ASSYIFA-WRJ';
+
+      allow create: if isValidId(settingId)
+        && isValidAppSetting(incoming())
+        && incoming().id == settingId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().updatedByUid == request.auth.uid)
+          || isLocalAdmin(incoming().updatedByUid)
+        );
+
+      allow update: if isValidId(settingId)
+        && isValidAppSetting(incoming())
+        && incoming().id == existing().id
+        && incoming().schoolCode == existing().schoolCode
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'qrScanMode', 'updatedByUid', 'updatedAt'
+        ])
+        && (
+          (isAdmin() && incoming().updatedByUid == request.auth.uid)
+          || isLocalAdmin(incoming().updatedByUid)
+        );
+
+      allow delete: if false;
     }
   }
 }

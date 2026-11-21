@@ -28,6 +28,12 @@ import {
   Unsubscribe,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
+import * as XLSX from 'xlsx';
+import { registerSW } from 'virtual:pwa-register';
+
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  registerSW({ immediate: true });
+}
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -159,6 +165,36 @@ export interface ClassRecord {
   name: string;
 }
 
+export interface DutyScheduleRecord {
+  id: string;
+  hari: 'Senin' | 'Selasa' | 'Rabu' | 'Kamis' | 'Jumat' | 'Sabtu' | 'Ahad';
+  shift: 'Siang' | 'Sore' | 'Malem';
+  jamMulai: string;
+  jamSelesai: string;
+  petugas: string;
+  kontak: string;
+  lokasi: string;
+  keterangan: string;
+  schoolCode?: string;
+  createdByUid?: string;
+}
+
+export interface ParsedStudentImportRow {
+  rowNumber: number;
+  nis: string;
+  nama: string;
+  kelas: string;
+  laptopCode: string;
+  laptopBrand: string;
+  isUpdate: boolean;
+}
+
+export interface ParsedStudentImportResult {
+  validRows: ParsedStudentImportRow[];
+  errors: { rowNumber: number; nis: string; reason: string }[];
+  totalRows: number;
+}
+
 type StateListener = () => void;
 type AuthListener = (
   user: CloudUser | null,
@@ -171,13 +207,17 @@ const cloudCache = {
   studentsLoaded: false,
   classesLoaded: false,
   logsLoaded: false,
+  schedulesLoaded: false,
   user: null as CloudUser | null,
   unverifiedEmail: null as string | null,
   students: [] as StudentRecord[],
   classes: [] as ClassRecord[],
   logs: [] as CirculationLogRecord[],
   staffRoles: [] as StaffRoleRecord[],
+  schedules: [] as DutyScheduleRecord[],
   registeredUsers: [] as { uid: string; fullName: string; role: 'admin' | 'piket' }[],
+  qrScanMode: 'both' as 'laptop' | 'both',
+  appSettingExists: false,
 };
 
 let unsubscribers: Unsubscribe[] = [];
@@ -216,11 +256,14 @@ function clearSubscriptions() {
   cloudCache.studentsLoaded = false;
   cloudCache.classesLoaded = false;
   cloudCache.logsLoaded = false;
+  cloudCache.schedulesLoaded = false;
   cloudCache.students = [];
   cloudCache.classes = [];
   cloudCache.logs = [];
   cloudCache.staffRoles = [];
+  cloudCache.schedules = [];
   cloudCache.registeredUsers = [];
+  cloudCache.appSettingExists = false;
 }
 
 function clampStr(val: unknown, maxLen: number): string {
@@ -529,6 +572,91 @@ function attachFirestoreListeners(user: CloudUser) {
       )
     );
   }
+
+  // 5. Duty schedules listener (dapat dilihat semua staf di Dashboard, dikelola Admin)
+  const schedulesQuery = query(
+    collection(db, 'duty_schedules'),
+    where('schoolCode', '==', SCHOOL_CODE)
+  );
+  unsubscribers.push(
+    onSnapshot(
+      schedulesQuery,
+      (snapshot) => {
+        const dayOrder: Record<string, number> = {
+          Senin: 1,
+          Selasa: 2,
+          Rabu: 3,
+          Kamis: 4,
+          Jumat: 5,
+          Sabtu: 6,
+          Ahad: 7,
+        };
+        const shiftOrder: Record<string, number> = {
+          Siang: 1,
+          Sore: 2,
+          Malem: 3,
+        };
+        const list: DutyScheduleRecord[] = snapshot.docs.map((d) => {
+          const data = d.data();
+          const shiftRaw = String(data.shift || 'Siang');
+          const normalizedShift: 'Siang' | 'Sore' | 'Malem' =
+            shiftRaw === 'Sore' ? 'Sore' : shiftRaw === 'Malem' ? 'Malem' : 'Siang';
+          return {
+            id: String(data.id || d.id),
+            hari: (String(data.hari || 'Senin') as DutyScheduleRecord['hari']),
+            shift: normalizedShift,
+            jamMulai: String(data.jamMulai || '12.55'),
+            jamSelesai: String(data.jamSelesai || '14.50'),
+            petugas: String(data.petugas || ''),
+            kontak: String(data.kontak || ''),
+            lokasi: String(data.lokasi || ''),
+            keterangan: String(data.keterangan || ''),
+            schoolCode: String(data.schoolCode || SCHOOL_CODE),
+            createdByUid: String(data.createdByUid || ''),
+          };
+        });
+        list.sort((a, b) => {
+          const dDiff = (dayOrder[a.hari] || 9) - (dayOrder[b.hari] || 9);
+          if (dDiff !== 0) return dDiff;
+          return (shiftOrder[a.shift] || 9) - (shiftOrder[b.shift] || 9);
+        });
+        cloudCache.schedules = list;
+        cloudCache.schedulesLoaded = true;
+        notifyStateListeners();
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'duty_schedules');
+      }
+    )
+  );
+
+  // 6. App settings listener (sinkronisasi mode QR: 'laptop' atau 'both')
+  const settingsQuery = query(
+    collection(db, 'app_settings'),
+    where('schoolCode', '==', SCHOOL_CODE)
+  );
+  unsubscribers.push(
+    onSnapshot(
+      settingsQuery,
+      (snapshot) => {
+        const settingDoc =
+          snapshot.docs.find((d) => d.id === SCHOOL_CODE) || snapshot.docs[0];
+        if (settingDoc) {
+          cloudCache.appSettingExists = true;
+          const data = settingDoc.data();
+          cloudCache.qrScanMode = data.qrScanMode === 'laptop' ? 'laptop' : 'both';
+        } else {
+          cloudCache.appSettingExists = false;
+          const fallback = localStorage.getItem('piketlaptop_qr_mode');
+          cloudCache.qrScanMode = fallback === 'laptop' ? 'laptop' : 'both';
+        }
+        notifyStateListeners();
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'app_settings');
+      }
+    )
+  );
 }
 
 onAuthStateChanged(auth, async (firebaseUser) => {
@@ -657,6 +785,14 @@ export const firebaseBackend = {
 
   getStaffRoles(): StaffRoleRecord[] {
     return cloudCache.staffRoles;
+  },
+
+  getDutySchedules(): DutyScheduleRecord[] {
+    return cloudCache.schedules;
+  },
+
+  getQrScanMode(): 'laptop' | 'both' {
+    return cloudCache.qrScanMode;
   },
 
   getRegisteredUsers() {
@@ -1227,7 +1363,8 @@ export const firebaseBackend = {
     identifier: string,
     fullName: string,
     role: 'admin' | 'piket',
-    password = ''
+    password = '',
+    editRoleId = ''
   ): Promise<void> {
     const uid = getActiveActorUid();
     if (!uid) throw new Error('Sesi autentikasi belum aktif.');
@@ -1235,6 +1372,7 @@ export const firebaseBackend = {
     const cleanInput = clampStr(identifier, 160).toLowerCase();
     const cleanName = clampStr(fullName, 120);
     const cleanPassword = clampStr(password, 100);
+    const cleanEditId = clampStr(editRoleId, 128);
     if (!cleanInput || !cleanName) {
       throw new Error('Nama lengkap dan username wajib diisi.');
     }
@@ -1246,6 +1384,68 @@ export const firebaseBackend = {
     if (!cleanUsername) {
       throw new Error('Username tidak valid.');
     }
+
+    if (cleanEditId) {
+      const target = cloudCache.staffRoles.find((r) => r.id === cleanEditId);
+      if (!target) {
+        throw new Error('Akun yang akan diedit tidak ditemukan.');
+      }
+      if (PROVIDER_ADMIN_EMAILS.includes(target.email.toLowerCase()) && role !== 'admin') {
+        throw new Error('Admin yang login dari provider tidak dapat diubah menjadi piket.');
+      }
+      if (cloudCache.user && cloudCache.user.uid === target.id && role !== 'admin') {
+        throw new Error('Tidak dapat menurunkan hak akses akun yang sedang digunakan.');
+      }
+      if (cleanPassword && cleanPassword.length < 4) {
+        throw new Error('Password minimal 4 karakter.');
+      }
+
+      const nextEmail = cleanInput.includes('@')
+        ? cleanInput
+        : target.email && !target.email.toLowerCase().endsWith('@piketlaptop.local')
+        ? target.email.toLowerCase()
+        : `${cleanUsername}@piketlaptop.local`;
+
+      const conflict = cloudCache.staffRoles.find(
+        (r) =>
+          r.id !== target.id &&
+          (r.username.toLowerCase() === cleanUsername || r.email.toLowerCase() === nextEmail)
+      );
+      if (conflict) {
+        throw new Error(`Username "${cleanUsername}" sudah digunakan oleh akun lain.`);
+      }
+
+      const finalPassword = cleanPassword || target.password || '';
+      if (!finalPassword || finalPassword.length < 4) {
+        throw new Error('Password minimal 4 karakter.');
+      }
+
+      try {
+        await updateDoc(doc(db, 'staff_roles', target.id), {
+          username: cleanUsername,
+          email: nextEmail,
+          fullName: cleanName,
+          role,
+          password: finalPassword,
+          assignedByUid: uid,
+          updatedAt: serverTimestamp(),
+        });
+        if (cloudCache.user && cloudCache.user.uid === target.id) {
+          cloudCache.user = {
+            ...cloudCache.user,
+            username: cleanUsername,
+            email: nextEmail,
+            fullName: cleanName,
+            role,
+          };
+          notifyAuthListeners();
+        }
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `staff_roles/${target.id}`);
+      }
+      return;
+    }
+
     const email = cleanInput.includes('@')
       ? cleanInput
       : `${cleanUsername}@piketlaptop.local`;
@@ -1329,6 +1529,128 @@ export const firebaseBackend = {
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${cleanUid}`);
+    }
+  },
+
+  async saveDutySchedule(input: {
+    id?: string;
+    hari: DutyScheduleRecord['hari'];
+    shift: DutyScheduleRecord['shift'];
+    jamMulai: string;
+    jamSelesai: string;
+    petugas: string;
+    kontak?: string;
+    lokasi?: string;
+    keterangan?: string;
+  }): Promise<void> {
+    const uid = getActiveActorUid();
+    if (!uid) throw new Error('Sesi autentikasi belum aktif.');
+
+    const validDays = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Ahad'];
+    if (!validDays.includes(input.hari)) {
+      throw new Error('Hari piket tidak valid.');
+    }
+
+    const validShifts = ['Siang', 'Sore', 'Malem'];
+    if (!validShifts.includes(input.shift)) {
+      throw new Error('Shift piket tidak valid.');
+    }
+
+    const petugas = clampStr(input.petugas, 160);
+    if (!petugas) {
+      throw new Error('Nama petugas piket wajib diisi.');
+    }
+
+    const jamMulai = clampStr(input.jamMulai, 10);
+    const jamSelesai = clampStr(input.jamSelesai, 10);
+    const kontak = clampStr(input.kontak || '', 50);
+    const lokasi = clampStr(input.lokasi || '', 100);
+    const keterangan = clampStr(input.keterangan || '', 300);
+
+    const existingId = clampStr(input.id || '', 80);
+    const scheduleId =
+      existingId || `sched-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    assertValidId(scheduleId, 'ID Jadwal Piket', 80);
+
+    if (existingId && cloudCache.schedules.some((item) => item.id === existingId)) {
+      try {
+        await updateDoc(doc(db, 'duty_schedules', existingId), {
+          hari: input.hari,
+          shift: input.shift,
+          jamMulai,
+          jamSelesai,
+          petugas,
+          kontak,
+          lokasi,
+          keterangan,
+          createdByUid: uid,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `duty_schedules/${existingId}`);
+      }
+      return;
+    }
+
+    try {
+      await setDoc(doc(db, 'duty_schedules', scheduleId), {
+        id: scheduleId,
+        hari: input.hari,
+        shift: input.shift,
+        jamMulai,
+        jamSelesai,
+        petugas,
+        kontak,
+        lokasi,
+        keterangan,
+        schoolCode: SCHOOL_CODE,
+        createdByUid: uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `duty_schedules/${scheduleId}`);
+    }
+  },
+
+  async deleteDutySchedule(scheduleId: string): Promise<void> {
+    if (!getActiveActorUid()) throw new Error('Sesi autentikasi belum aktif.');
+    const cleanId = clampStr(scheduleId, 80);
+    assertValidId(cleanId, 'ID Jadwal Piket', 80);
+    try {
+      await deleteDoc(doc(db, 'duty_schedules', cleanId));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `duty_schedules/${cleanId}`);
+    }
+  },
+
+  async setQrScanMode(mode: 'laptop' | 'both'): Promise<void> {
+    const uid = getActiveActorUid();
+    if (!uid) throw new Error('Sesi autentikasi belum aktif.');
+    const normalized: 'laptop' | 'both' = mode === 'laptop' ? 'laptop' : 'both';
+    const settingRef = doc(db, 'app_settings', SCHOOL_CODE);
+    try {
+      if (cloudCache.appSettingExists) {
+        await updateDoc(settingRef, {
+          qrScanMode: normalized,
+          updatedByUid: uid,
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        await setDoc(settingRef, {
+          id: SCHOOL_CODE,
+          qrScanMode: normalized,
+          schoolCode: SCHOOL_CODE,
+          updatedByUid: uid,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        cloudCache.appSettingExists = true;
+      }
+      cloudCache.qrScanMode = normalized;
+      notifyStateListeners();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `app_settings/${SCHOOL_CODE}`);
     }
   },
 
@@ -1447,6 +1769,285 @@ export const firebaseBackend = {
         handleFirestoreError(error, OperationType.WRITE, 'circulation_logs');
       }
     }
+  },
+
+  downloadStudentTemplateXlsx(): void {
+    const templateRows = [
+      {
+        NIS: '2401099',
+        Nama: 'Ahmad Zaki',
+        Kelas: '10A',
+        'Kode Laptop': 'LPT-10A-99',
+        'Merk Laptop': 'Lenovo ThinkPad X13',
+      },
+      {
+        NIS: '2401100',
+        Nama: 'Fatimah Azzahra',
+        Kelas: '10B',
+        'Kode Laptop': 'LPT-10B-100',
+        'Merk Laptop': 'ASUS VivoBook 14',
+      },
+    ];
+    const ws = XLSX.utils.json_to_sheet(templateRows);
+    ws['!cols'] = [
+      { wch: 16 },
+      { wch: 28 },
+      { wch: 12 },
+      { wch: 18 },
+      { wch: 26 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Data Murid');
+    XLSX.writeFile(wb, 'template-import-murid.xlsx');
+  },
+
+  parseStudentsXlsx(buffer: ArrayBuffer): ParsedStudentImportResult {
+    const wb = XLSX.read(buffer, { type: 'array' });
+    const firstSheetName = wb.SheetNames[0];
+    if (!firstSheetName) {
+      throw new Error('File Excel tidak memiliki lembar kerja (sheet).');
+    }
+    const ws = wb.Sheets[firstSheetName];
+    const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+      defval: '',
+      raw: false,
+    });
+
+    const existingNisSet = new Set(cloudCache.students.map((s) => s.nis));
+    const seenNis = new Set<string>();
+    const seenLaptop = new Set<string>();
+    const validRows: ParsedStudentImportRow[] = [];
+    const errors: { rowNumber: number; nis: string; reason: string }[] = [];
+
+    const normalizeKey = (k: string) =>
+      k
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+
+    const pickVal = (normObj: Record<string, string>, keys: string[]): string => {
+      for (const k of keys) {
+        if (normObj[k] !== undefined && normObj[k] !== '') {
+          return normObj[k];
+        }
+      }
+      return '';
+    };
+
+    rawRows.forEach((rawRow, idx) => {
+      const rowNumber = idx + 2; // Baris 1 adalah header
+      const normObj: Record<string, string> = {};
+      Object.entries(rawRow).forEach(([k, v]) => {
+        normObj[normalizeKey(k)] = String(v ?? '').trim();
+      });
+
+      // Lewati baris yang benar-benar kosong
+      const hasAnyValue = Object.values(normObj).some((v) => v.length > 0);
+      if (!hasAnyValue) return;
+
+      const nisRaw = pickVal(normObj, ['nis', 'nis murid', 'id', 'id murid', 'nomor induk']);
+      const nama = clampStr(
+        pickVal(normObj, ['nama', 'nama murid', 'nama lengkap', 'student name']),
+        120
+      );
+      const kelas = clampStr(pickVal(normObj, ['kelas', 'class', 'rombel']), 60);
+      const laptopRaw = pickVal(normObj, [
+        'kode laptop',
+        'kode',
+        'laptop code',
+        'kode unit',
+        'qr laptop',
+      ]);
+      const laptopBrand = clampStr(
+        pickVal(normObj, ['merk laptop', 'merk', 'seri laptop', 'laptop brand', 'tipe laptop']),
+        100
+      );
+
+      const nis = clampStr(nisRaw.replace(/\s+/g, ''), 40);
+      const fallbackLaptop = nis
+        ? `LPT-${nis}`.replace(/[^a-zA-Z0-9_\-]+/g, '-').slice(0, 40)
+        : '';
+      const laptopCode = clampStr(
+        (laptopRaw || fallbackLaptop).replace(/\s+/g, '-'),
+        40
+      );
+
+      if (!nis || !VALID_ID_REGEX.test(nis)) {
+        errors.push({
+          rowNumber,
+          nis: nis || '-',
+          reason: 'NIS wajib diisi (hanya huruf, angka, -, _ tanpa spasi).',
+        });
+        return;
+      }
+      if (!nama) {
+        errors.push({ rowNumber, nis, reason: 'Nama murid wajib diisi.' });
+        return;
+      }
+      if (!kelas) {
+        errors.push({ rowNumber, nis, reason: 'Kelas wajib diisi.' });
+        return;
+      }
+      if (!laptopCode || !VALID_ID_REGEX.test(laptopCode)) {
+        errors.push({
+          rowNumber,
+          nis,
+          reason: 'Kode Laptop tidak valid (hanya huruf, angka, -, _).',
+        });
+        return;
+      }
+      if (!laptopBrand) {
+        errors.push({ rowNumber, nis, reason: 'Merk / Seri Laptop wajib diisi.' });
+        return;
+      }
+      if (seenNis.has(nis)) {
+        errors.push({ rowNumber, nis, reason: `Duplikat NIS (${nis}) di dalam file.` });
+        return;
+      }
+      if (seenLaptop.has(laptopCode)) {
+        errors.push({
+          rowNumber,
+          nis,
+          reason: `Duplikat Kode Laptop (${laptopCode}) di dalam file.`,
+        });
+        return;
+      }
+
+      seenNis.add(nis);
+      seenLaptop.add(laptopCode);
+
+      validRows.push({
+        rowNumber,
+        nis,
+        nama,
+        kelas,
+        laptopCode,
+        laptopBrand,
+        isUpdate: existingNisSet.has(nis),
+      });
+    });
+
+    return {
+      validRows,
+      errors,
+      totalRows: validRows.length + errors.length,
+    };
+  },
+
+  async importStudentsBatch(
+    rows: ParsedStudentImportRow[],
+    handlerName: string
+  ): Promise<{ created: number; updated: number; classesAdded: number }> {
+    const uid = getActiveActorUid();
+    if (!uid) throw new Error('Sesi autentikasi belum aktif.');
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new Error('Tidak ada data murid valid yang siap diimpor.');
+    }
+
+    const nowLabel = new Date().toLocaleString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const existingClassNames = new Set(
+      cloudCache.classes.map((c) => c.name.trim().toLowerCase())
+    );
+    const existingClassIds = new Set(cloudCache.classes.map((c) => c.id));
+    const existingStudentNis = new Set(cloudCache.students.map((s) => s.nis));
+
+    type BatchOp = (batch: ReturnType<typeof writeBatch>) => void;
+    const ops: BatchOp[] = [];
+    let classesAdded = 0;
+    let created = 0;
+    let updated = 0;
+
+    // 1. Tambahkan kelas baru yang belum ada di Firestore
+    const pendingClasses = new Set<string>();
+    rows.forEach((r) => {
+      const cleanCls = clampStr(r.kelas, 60);
+      if (
+        cleanCls &&
+        !existingClassNames.has(cleanCls.toLowerCase()) &&
+        !pendingClasses.has(cleanCls.toLowerCase())
+      ) {
+        const classId = makeSafeClassId(cleanCls);
+        if (!existingClassIds.has(classId) && VALID_ID_REGEX.test(classId)) {
+          pendingClasses.add(cleanCls.toLowerCase());
+          existingClassIds.add(classId);
+          classesAdded++;
+          ops.push((batch) => {
+            batch.set(doc(db, 'classes', classId), {
+              name: cleanCls,
+              schoolCode: SCHOOL_CODE,
+              createdByUid: uid,
+              createdAt: serverTimestamp(),
+            });
+          });
+        }
+      }
+    });
+
+    // 2. Buat / perbarui dokumen murid
+    rows.forEach((r) => {
+      const nis = clampStr(r.nis, 40);
+      const nama = clampStr(r.nama, 120);
+      const kelas = clampStr(r.kelas, 60);
+      const laptopCode = clampStr(r.laptopCode, 40);
+      const laptopBrand = clampStr(r.laptopBrand, 100);
+
+      if (existingStudentNis.has(nis)) {
+        updated++;
+        ops.push((batch) => {
+          batch.update(doc(db, 'students', nis), {
+            nama,
+            kelas,
+            laptopCode,
+            laptopBrand,
+            updatedByUid: uid,
+            updatedAt: serverTimestamp(),
+          });
+        });
+      } else {
+        created++;
+        ops.push((batch) => {
+          batch.set(doc(db, 'students', nis), {
+            nis,
+            nama,
+            kelas,
+            foto: '',
+            laptopCode,
+            laptopBrand,
+            laptopStatus: 'tersedia',
+            blocked: false,
+            blockReason: '',
+            lastActivityAt: clampStr(nowLabel, 40),
+            lastHandledBy: clampStr(handlerName || 'Import XLSX', 120),
+            schoolCode: SCHOOL_CODE,
+            updatedByUid: uid,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        });
+      }
+    });
+
+    // Jalankan dalam chunk <= 200 operasi per writeBatch agar aman di bawah limit 500 Firestore
+    const CHUNK_SIZE = 200;
+    for (let i = 0; i < ops.length; i += CHUNK_SIZE) {
+      const chunk = ops.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+      chunk.forEach((applyOp) => applyOp(batch));
+      try {
+        await batch.commit();
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'students');
+      }
+    }
+
+    return { created, updated, classesAdded };
   },
 };
 
