@@ -368,6 +368,10 @@
             <span>Install Aplikasi di Perangkat</span>
           </button>
         </div>
+
+        <p class="mt-6 pt-4 border-t border-slate-100 text-center text-[11px] font-medium text-slate-500">
+          Copyright &copy; 2026 FHS
+        </p>
       </div>
     </div>
 
@@ -1001,8 +1005,36 @@
                 </div>
               </div>
             </section>
+
+            <!-- ========================================================= -->
+            <!-- HALAMAN 7: SOP PIKET LAPTOP (ADMIN & PETUGAS PIKET)       -->
+            <!-- ========================================================= -->
+            <section id="view-sop" class="hidden space-y-5">
+              <div class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+                  <div>
+                    <h2 class="text-base font-bold text-slate-900">SOP Piket Laptop</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">
+                      Standar Operasional Prosedur layanan peminjaman dan pengembalian laptop. Ketuk gambar untuk memperbesar.
+                    </p>
+                  </div>
+                </div>
+                <div class="p-4 sm:p-6 bg-slate-50 flex justify-center">
+                  <img
+                    src="https://i.imgur.com/d2W6qsw.jpeg"
+                    alt="SOP Piket Laptop"
+                    referrerpolicy="no-referrer"
+                    onclick="openPhotoLightbox(this)"
+                    class="w-full max-w-4xl h-auto rounded-xl border border-slate-200 bg-white shadow-sm cursor-zoom-in"
+                  />
+                </div>
+              </div>
+            </section>
           </div>
         </main>
+        <footer class="py-4 px-4 sm:px-8 border-t border-slate-200 bg-white/80 text-center text-xs font-medium text-slate-500">
+          Copyright &copy; 2026 FHS
+        </footer>
       </div>
     </div>
 
@@ -1788,6 +1820,29 @@
       </div>
     </div>
 
+    <!-- =================================================================== -->
+    <!-- 10. MODAL LIGHTBOX ZOOM FOTO MURID (KLIK DI LUAR FOTO UNTUK TUTUP)  -->
+    <!-- =================================================================== -->
+    <div
+      id="photoLightboxModal"
+      onclick="closeModal('photoLightboxModal')"
+      class="hidden fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Perbesar Foto Murid"
+    >
+      <div class="flex flex-col items-center max-w-lg w-full pointer-events-none">
+        <img
+          id="photoLightboxImg"
+          src=""
+          alt="Foto Murid"
+          onclick="event.stopPropagation()"
+          class="pointer-events-auto max-h-[82vh] max-w-full w-auto rounded-2xl border-2 border-white shadow-2xl object-contain bg-white cursor-default"
+        />
+        <p id="photoLightboxCaption" class="mt-3 text-xs sm:text-sm font-semibold text-white text-center drop-shadow"></p>
+      </div>
+    </div>
+
     <!-- Notifikasi Toast -->
     <div
       id="toastContainer"
@@ -2164,7 +2219,7 @@
       const ROLE_PERMISSIONS = {
         admin: {
           label: 'Administrator',
-          allowedViews: ['dashboard', 'scan', 'history', 'students', 'schedules', 'users'],
+          allowedViews: ['dashboard', 'scan', 'history', 'students', 'schedules', 'sop', 'users'],
           canManageStudents: true,
           canBlockStudents: true,
           canExportAllCsv: true,
@@ -2174,7 +2229,7 @@
         },
         piket: {
           label: 'Petugas Piket',
-          allowedViews: ['dashboard', 'scan', 'history'],
+          allowedViews: ['dashboard', 'scan', 'history', 'sop'],
           canManageStudents: false,
           canBlockStudents: false,
           canExportAllCsv: false,
@@ -2452,6 +2507,7 @@
         { id: 'history', label: 'Riwayat' },
         { id: 'students', label: 'Database Murid & Laptop' },
         { id: 'schedules', label: 'Jadwal Piket' },
+        { id: 'sop', label: 'SOP' },
         { id: 'users', label: 'Manajemen Akun' },
       ];
 
@@ -2515,12 +2571,13 @@
           history: isAdmin() ? 'Riwayat Sirkulasi Laptop' : 'Riwayat Sirkulasi Hari Ini',
           students: 'Database Murid & Laptop',
           schedules: 'Jadwal Petugas Piket',
+          sop: 'SOP Piket Laptop',
           users: 'Manajemen Akun',
         };
         document.getElementById('pageTitle').textContent = titles[viewId] || 'Dashboard';
 
         // Sembunyikan semua section lalu tampilkan yang aktif
-        ['dashboard', 'scan', 'history', 'students', 'schedules', 'users'].forEach((id) => {
+        ['dashboard', 'scan', 'history', 'students', 'schedules', 'sop', 'users'].forEach((id) => {
           const el = document.getElementById(`view-${id}`);
           if (el) el.classList.toggle('hidden', id !== viewId);
         });
@@ -3184,14 +3241,14 @@
                 </div>
               </div>
 
-              <div class="flex items-center justify-between text-xs pt-1">
+              <div class="flex items-center justify-between gap-3 text-xs pt-1">
                 <span class="text-[11px] text-red-700">Arahkan murid melapor ke Admin.</span>
                 <button
                   type="button"
                   onclick="resetScanFlow()"
-                  class="px-3.5 py-1.5 bg-red-700 hover:bg-red-800 text-white text-xs font-bold rounded-lg shadow-sm transition-colors whitespace-nowrap"
+                  class="px-4 py-2 bg-red-700 hover:bg-red-800 text-white text-xs font-bold rounded-lg shadow-sm transition-colors whitespace-nowrap"
                 >
-                  Scan Lainnya
+                  Scan Murid Lain
                 </button>
               </div>
             </div>
@@ -3292,31 +3349,32 @@
             <div class="space-y-3">
               ${bannerHtml}
 
-              <!-- KARTU DATA MURID REAL-TIME (FOTO, NAMA, STATUS MURID & UNIT) -->
-              <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center gap-3.5">
+              <!-- KARTU DATA MURID REAL-TIME (FOTO DI ATAS, STATUS & INFO DI BAWAH FOTO) -->
+              <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col items-center text-center gap-2.5">
                 <img
                   src="${photoSrc}"
                   alt="${escapeHtml(activeStudent.nama)}"
                   referrerpolicy="no-referrer"
                   onerror="this.onerror=null;this.src=createDefaultAvatar(this.alt)"
-                  class="w-18 h-18 sm:w-22 sm:h-22 rounded-2xl object-cover border-2 border-emerald-500 bg-white shrink-0 shadow-sm"
+                  class="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl object-cover border-2 border-emerald-500 bg-white shrink-0 shadow-sm"
                 />
 
-                <div class="min-w-0 flex-1 space-y-1">
-                  <div class="flex flex-wrap items-center gap-1.5">
+                <div class="w-full min-w-0 space-y-1">
+                  <div class="flex flex-wrap items-center justify-center gap-1.5">
                     <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
                       <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Aktif Diizinkan
                     </span>
-                    <span class="text-[11px] font-mono text-slate-500 tabular-nums">
-                      ${escapeHtml(activeStudent.nis)} · ${escapeHtml(activeStudent.kelas)}
-                    </span>
                   </div>
+
+                  <p class="text-[11px] font-mono text-slate-600 tabular-nums">
+                    ${escapeHtml(activeStudent.nis)} · ${escapeHtml(activeStudent.kelas)}
+                  </p>
 
                   <h3 class="text-sm sm:text-base font-bold text-slate-950 truncate leading-snug">
                     ${escapeHtml(activeStudent.nama)}
                   </h3>
 
-                  <div class="pt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  <div class="pt-0.5 flex flex-col items-center gap-0.5 text-xs">
                     <div>
                       <span class="text-slate-500 text-[11px]">Unit: </span>
                       <strong class="font-mono text-slate-900">${escapeHtml(activeStudent.laptopCode)}</strong>
@@ -3353,9 +3411,12 @@
         if (statusType === 'confirm_laptop' && activeStudent) {
           const photoSrc = activeStudent.foto || createDefaultAvatar(activeStudent.nama);
           const isCheckout = activeStudent.laptopStatus === 'tersedia';
+          const isBlocked = Boolean(activeStudent.blocked);
           const disabledAttr = isSubmitting ? 'disabled' : '';
 
-          const headerBanner = isCheckout
+          const headerBanner = isBlocked
+            ? ''
+            : isCheckout
             ? `
               <div class="p-2.5 rounded-xl bg-orange-50 border border-orange-200 flex items-center justify-between gap-2">
                 <p class="text-xs font-bold text-orange-950">Konfirmasi Pengambilan Laptop</p>
@@ -3373,11 +3434,23 @@
               </div>
             `;
 
-          const blockedNoteHtml = activeStudent.blocked
-            ? `<div class="p-2 rounded-lg bg-red-50 border border-red-200 text-[11px] font-semibold text-red-700">Catatan: Akun murid ini berstatus Diblokir (${escapeHtml(activeStudent.blockReason || 'Disuspend')}).</div>`
+          const blockedNoteHtml = isBlocked
+            ? `<div class="p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs font-semibold text-red-700">Murid ini berstatus Diblokir (${escapeHtml(activeStudent.blockReason || 'Disuspend')}). Laptop masih di ruang laptop.</div>`
             : '';
 
-          const actionButtonsHtml = isCheckout
+          const actionButtonsHtml = isBlocked
+            ? `
+              <div class="pt-1">
+                <button
+                  type="button"
+                  onclick="resetScanFlow()"
+                  class="w-full py-2.5 px-4 bg-red-700 hover:bg-red-800 active:scale-[0.98] text-white text-xs sm:text-sm font-bold rounded-xl shadow-sm transition-all text-center"
+                >
+                  Scan Murid Lain
+                </button>
+              </div>
+            `
+            : isCheckout
             ? `
               <div class="grid grid-cols-2 gap-2.5 pt-1">
                 <button
@@ -3424,15 +3497,20 @@
               ${headerBanner}
               ${blockedNoteHtml}
 
-              <!-- Identitas Pemilik & Foto -->
+              <!-- Identitas Pemilik & Foto (Klik foto untuk memperbesar) -->
               <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center gap-3.5">
-                <img
-                  src="${photoSrc}"
-                  alt="${escapeHtml(activeStudent.nama)}"
-                  referrerpolicy="no-referrer"
-                  onerror="this.onerror=null;this.src=createDefaultAvatar(this.alt)"
-                  class="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover border-2 ${isCheckout ? 'border-orange-500' : 'border-blue-500'} bg-white shrink-0 shadow-sm"
-                />
+                <div class="flex flex-col items-center gap-1 shrink-0">
+                  <img
+                    src="${photoSrc}"
+                    alt="${escapeHtml(activeStudent.nama)}"
+                    title="Klik foto untuk memperbesar"
+                    referrerpolicy="no-referrer"
+                    onerror="this.onerror=null;this.src=createDefaultAvatar(this.alt)"
+                    onclick="openPhotoLightbox(this)"
+                    class="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover border-2 ${isCheckout ? 'border-orange-500' : 'border-blue-500'} bg-white shadow-sm cursor-zoom-in hover:opacity-90 active:scale-[0.98] transition-all"
+                  />
+                  <span class="text-[10px] font-medium text-slate-500">Klik foto</span>
+                </div>
 
                 <div class="min-w-0 flex-1 space-y-1">
                   <div class="flex flex-wrap items-center gap-1.5">
@@ -3789,7 +3867,7 @@
             const statusHtml =
               log.status === 'Dibawa Murid'
                 ? '<span class="text-xs font-semibold text-amber-700">Dibawa Murid</span>'
-                : '<span class="text-xs font-semibold text-emerald-700">Selesai Kembali</span>';
+                : '<span class="text-xs font-semibold text-emerald-700">Di Ruang Laptop</span>';
 
             return `
               <tr class="hover:bg-slate-50/80 transition-colors">
@@ -3877,7 +3955,7 @@
             l.laptopCode,
             l.petugasAmbil,
             l.petugasKembali || '-',
-            l.status,
+            l.status === 'Dibawa Murid' ? 'Dibawa Murid' : 'Di Ruang Laptop',
           ]
             .map(csvEscape)
             .join(',')
@@ -4649,19 +4727,25 @@
           appState.qrPrintMeta.filename = `stiker-laptop-${s.laptopCode}.png`;
 
           printContainer.innerHTML = `
-            <div class="w-[320px] mx-auto border-2 border-slate-900 rounded-xl p-4 bg-white text-slate-900 flex items-center gap-4 shadow-sm print:shadow-none">
-              <div id="qrCanvasSlot" class="p-1.5 bg-white border border-slate-200 rounded-lg shrink-0"></div>
-              <div class="min-w-0 flex-1 space-y-1">
-                <div class="flex items-center justify-between">
-                  <p class="text-[10px] font-mono font-bold text-orange-700">ASET LAPTOP MURID</p>
-                  <span class="text-[9px] font-semibold text-slate-400">WANAREJA</span>
-                </div>
-                <p class="text-lg font-mono font-bold text-slate-900 leading-none">${escapeHtml(s.laptopCode)}</p>
-                <p class="text-xs text-slate-700 truncate">${escapeHtml(s.laptopBrand)}</p>
-                <div class="pt-1.5 border-t border-slate-200">
-                  <p class="text-[11px] text-slate-500">Pemilik Resmi:</p>
-                  <p class="text-xs font-bold text-slate-900 truncate">${escapeHtml(s.nama)}</p>
-                  <p class="text-[11px] font-mono text-slate-600">${escapeHtml(s.kelas)} · ${escapeHtml(s.nis)}</p>
+            <div class="w-[330px] mx-auto border-2 border-slate-900 rounded-xl p-3.5 bg-white text-slate-900 shadow-sm print:shadow-none space-y-2.5">
+              <div class="text-center border-b border-slate-200 pb-1.5">
+                <p class="text-[10px] font-bold text-slate-900 leading-tight">
+                  SMAIT As-Syifa Boarding School Wanareja
+                </p>
+                <p class="text-[10px] font-mono font-bold uppercase tracking-wider text-orange-700 mt-0.5">
+                  ASET LAPTOP MURID
+                </p>
+              </div>
+              <div class="flex items-center gap-3.5">
+                <div id="qrCanvasSlot" class="p-1.5 bg-white border border-slate-200 rounded-lg shrink-0"></div>
+                <div class="min-w-0 flex-1 space-y-1">
+                  <p class="text-lg font-mono font-bold text-slate-900 leading-none">${escapeHtml(s.laptopCode)}</p>
+                  <p class="text-xs text-slate-700 truncate">${escapeHtml(s.laptopBrand)}</p>
+                  <div class="pt-1.5 border-t border-slate-200">
+                    <p class="text-[11px] text-slate-500">Pemilik Resmi:</p>
+                    <p class="text-xs font-bold text-slate-900 truncate">${escapeHtml(s.nama)}</p>
+                    <p class="text-[11px] font-mono text-slate-600">${escapeHtml(s.kelas)} · ${escapeHtml(s.nis)}</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -4750,19 +4834,25 @@
               ${filtered
                 .map((s) => {
                   return `
-                    <div class="print-card-item border-2 border-slate-900 rounded-xl p-3 bg-white text-slate-900 shadow-xs flex items-center gap-3">
-                      <div class="qr-batch-slot p-1 bg-white border border-slate-300 rounded-md shrink-0" data-qr="${escapeHtml(s.laptopCode)}" data-size="76"></div>
-                      <div class="min-w-0 flex-1 space-y-0.5">
-                        <div class="flex items-center justify-between">
-                          <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-orange-700">ASET LAPTOP MURID</span>
-                          <span class="text-[9px] font-semibold text-slate-400">WANAREJA</span>
-                        </div>
-                        <p class="text-base font-mono font-bold text-slate-900 leading-none">${escapeHtml(s.laptopCode)}</p>
-                        <p class="text-[11px] text-slate-600 truncate">${escapeHtml(s.laptopBrand)}</p>
-                        <div class="pt-1 mt-1 border-t border-slate-200 text-[10px]">
-                          <span class="text-slate-500">Pemilik: </span>
-                          <strong class="text-slate-900 truncate">${escapeHtml(s.nama)}</strong>
-                          <div class="text-[10px] font-mono text-slate-600">${escapeHtml(s.kelas)} · ${escapeHtml(s.nis)}</div>
+                    <div class="print-card-item border-2 border-slate-900 rounded-xl p-3 bg-white text-slate-900 shadow-xs space-y-2">
+                      <div class="text-center border-b border-slate-200 pb-1">
+                        <p class="text-[9px] font-bold text-slate-900 leading-tight">
+                          SMAIT As-Syifa Boarding School Wanareja
+                        </p>
+                        <p class="text-[9px] font-mono font-bold uppercase tracking-wider text-orange-700 mt-0.5">
+                          ASET LAPTOP MURID
+                        </p>
+                      </div>
+                      <div class="flex items-center gap-3">
+                        <div class="qr-batch-slot p-1 bg-white border border-slate-300 rounded-md shrink-0" data-qr="${escapeHtml(s.laptopCode)}" data-size="76"></div>
+                        <div class="min-w-0 flex-1 space-y-0.5">
+                          <p class="text-base font-mono font-bold text-slate-900 leading-none">${escapeHtml(s.laptopCode)}</p>
+                          <p class="text-[11px] text-slate-600 truncate">${escapeHtml(s.laptopBrand)}</p>
+                          <div class="pt-1 mt-1 border-t border-slate-200 text-[10px]">
+                            <span class="text-slate-500">Pemilik: </span>
+                            <strong class="text-slate-900 truncate">${escapeHtml(s.nama)}</strong>
+                            <div class="text-[10px] font-mono text-slate-600">${escapeHtml(s.kelas)} · ${escapeHtml(s.nis)}</div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -5694,6 +5784,29 @@
         updatePwaInstallButtonsVisibility();
         updateOfflineBannerState();
       }
+
+      function openPhotoLightbox(imgEl) {
+        if (!imgEl) return;
+        const modal = document.getElementById('photoLightboxModal');
+        const targetImg = document.getElementById('photoLightboxImg');
+        const caption = document.getElementById('photoLightboxCaption');
+        if (!modal || !targetImg) return;
+        targetImg.src = imgEl.src || '';
+        targetImg.alt = imgEl.alt || 'Foto Murid';
+        if (caption) {
+          caption.textContent = imgEl.alt || '';
+        }
+        modal.classList.remove('hidden');
+      }
+
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+          const modal = document.getElementById('photoLightboxModal');
+          if (modal && !modal.classList.contains('hidden')) {
+            closeModal('photoLightboxModal');
+          }
+        }
+      });
 
       window.addEventListener('firebaseBackendReady', initFirebaseBridge);
 
